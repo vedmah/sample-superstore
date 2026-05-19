@@ -181,7 +181,10 @@ COLORS = {
 # ─── LOAD DATA ───────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    df = pd.read_csv("SampleSuperstore.csv")
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path = os.path.join(base_dir, "SampleSuperstore.csv")
+    df = pd.read_csv(csv_path)
     df.columns = df.columns.str.strip()
     df["Sales"]    = pd.to_numeric(df["Sales"],    errors="coerce")
     df["Profit"]   = pd.to_numeric(df["Profit"],   errors="coerce")
