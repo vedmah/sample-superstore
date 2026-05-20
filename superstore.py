@@ -1,292 +1,580 @@
+import os
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import json
-from pathlib import Path
+import numpy as np
 
+# ─── PAGE CONFIG ─────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="India Executive Dashboard",
+    page_title="India Retail Analytics",
+    page_icon="🇮🇳",
     layout="wide",
-    page_icon="📊"
+    initial_sidebar_state="collapsed",
 )
 
+# ─── CSS ─────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .main { background: #f5f7fb; }
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-    .hero {
-        background: linear-gradient(90deg, #0f172a, #1d4ed8);
-        color: white;
-        padding: 18px 22px;
-        border-radius: 18px;
-        margin-bottom: 16px;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
-    }
-    .kpi {
-        background: white;
-        padding: 14px 14px;
-        border-radius: 16px;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    }
-    .small {
-        color: #64748b;
-        font-size: 12px;
-    }
-    section[data-testid="stSidebar"] {
-        background: #ffffff;
-    }
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+#MainMenu{visibility:hidden;} footer{visibility:hidden;} header{visibility:hidden;}
+[data-testid="collapsedControl"]{display:none!important;}
+[data-testid="stSidebar"]{display:none!important;}
+.stApp{background:#0a0e1a;}
+
+/* header */
+.dash-header{background:linear-gradient(135deg,#0d1b3e 0%,#0f2b5b 50%,#1a1f3a 100%);
+  border-bottom:1px solid #1e3a6e;padding:18px 24px 14px;border-radius:0 0 16px 16px;margin-bottom:18px;}
+.dash-title{font-size:26px;font-weight:700;color:#e8ecf5;letter-spacing:-0.02em;}
+.dash-flag{font-size:28px;margin-right:10px;}
+.dash-subtitle{font-size:13px;color:#5a7ab5;margin-top:3px;}
+
+/* filter bar */
+.filter-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#4a6490;margin-bottom:6px;}
+[data-testid="stMultiSelect"]>div{background:#111827!important;border:1px solid #1e3050!important;border-radius:8px!important;}
+[data-testid="stMultiSelect"] span{color:#c8ccd8!important;}
+.stMultiSelect label{color:#4a6490!important;font-size:10px!important;text-transform:uppercase;letter-spacing:0.07em;}
+[data-testid="stSelectbox"]>div>div{background:#111827!important;border:1px solid #1e3050!important;border-radius:8px!important;color:#c8ccd8!important;}
+.stSelectbox label{color:#4a6490!important;font-size:10px!important;text-transform:uppercase;letter-spacing:0.07em;}
+
+/* KPI cards */
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;}
+.kpi{background:linear-gradient(135deg,#111827,#151f35);border:1px solid #1e3050;border-radius:12px;
+     padding:16px 18px;position:relative;overflow:hidden;}
+.kpi::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;border-radius:3px 0 0 3px;}
+.kpi.saffron::before{background:#FF9933;}
+.kpi.white::before{background:#e8ecf5;}
+.kpi.green::before{background:#138808;}
+.kpi.blue::before{background:#4f8ef7;}
+.kpi.purple::before{background:#a78bfa;}
+.kpi-icon{font-size:18px;margin-bottom:6px;}
+.kpi-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#4a6490;margin-bottom:4px;}
+.kpi-value{font-size:22px;font-weight:700;color:#e8ecf5;font-family:'DM Mono',monospace;line-height:1.1;}
+.kpi-sub{font-size:11px;margin-top:4px;color:#5a7ab5;}
+.kpi-sub.pos{color:#138808;}
+.kpi-sub.neg{color:#e05c5c;}
+
+/* section headers */
+.sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#4a6490;
+     padding:8px 0 8px;border-bottom:1px solid #1a2540;margin-bottom:2px;display:flex;align-items:center;gap:8px;}
+
+hr{border-color:#1a2540!important;}
+.stSlider label{color:#4a6490!important;font-size:10px!important;text-transform:uppercase;}
 </style>
 """, unsafe_allow_html=True)
 
+# ─── PLOT LAYOUT HELPER ───────────────────────────────────────────────────────
+def PL(title="", height=None, margin=None, extra=None):
+    m = margin or dict(l=8, r=8, t=36, b=8)
+    base = dict(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="DM Sans", color="#c8ccd8", size=11),
+        margin=m,
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10, color="#7c8db5")),
+        xaxis=dict(gridcolor="#141e30", linecolor="#1e3050", tickcolor="#1e3050",
+                   tickfont=dict(size=10, color="#5a7ab5"), zeroline=False),
+        yaxis=dict(gridcolor="#141e30", linecolor="#1e3050", tickcolor="#1e3050",
+                   tickfont=dict(size=10, color="#5a7ab5"), zeroline=False),
+        colorway=["#FF9933","#138808","#4f8ef7","#a78bfa","#f7a83e","#e05c8b","#34d399"],
+    )
+    if title:
+        base["title"] = dict(text=title, font=dict(size=12, color="#7c8db5"))
+    if height:
+        base["height"] = height
+    if extra:
+        base.update(extra)
+    return base
+
+C = {
+    "saffron":"#FF9933","green":"#138808","blue":"#4f8ef7","navy":"#000080",
+    "purple":"#a78bfa","amber":"#f7a83e","pink":"#e05c8b","teal":"#34d399","red":"#f87171",
+    "cat":{
+        "Electronics":"#4f8ef7","Furniture":"#f7a83e",
+        "Office Supplies":"#138808","Clothing":"#FF9933","Home & Kitchen":"#a78bfa",
+    },
+    "region":{"North":"#FF9933","South":"#138808","East":"#4f8ef7","West":"#a78bfa","Central":"#f7a83e"},
+    "seg":{"Consumer":"#4f8ef7","Corporate":"#FF9933","Small Business":"#138808","Government":"#a78bfa"},
+    "ship":{"Standard Delivery":"#4f8ef7","Express Delivery":"#FF9933",
+            "Same Day Delivery":"#f87171","Economy Delivery":"#138808"},
+}
+
+# ─── LOAD DATA ───────────────────────────────────────────────────────────────
+@st.cache_data
+def load_data(file=None):
+    if file is not None:
+        df = pd.read_csv(file)
+    else:
+        candidates = [
+            "IndiaSuperstore.csv",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "IndiaSuperstore.csv"),
+            os.path.join(os.getcwd(), "IndiaSuperstore.csv"),
+        ]
+        df = None
+        for p in candidates:
+            if os.path.exists(p):
+                df = pd.read_csv(p)
+                break
+        if df is None:
+            return None
+    df.columns = df.columns.str.strip()
+    df["Sales"]      = pd.to_numeric(df["Sales"],    errors="coerce")
+    df["Profit"]     = pd.to_numeric(df["Profit"],   errors="coerce")
+    df["Quantity"]   = pd.to_numeric(df["Quantity"], errors="coerce")
+    df["Discount"]   = pd.to_numeric(df["Discount"], errors="coerce")
+    df["Order Date"] = pd.to_datetime(df["Order Date"], errors="coerce")
+    df["Year"]       = df["Order Date"].dt.year
+    df["Month"]      = df["Order Date"].dt.month
+    df["MonthName"]  = df["Order Date"].dt.strftime("%b")
+    df["Quarter"]    = "Q" + df["Order Date"].dt.quarter.astype(str)
+    df["YearMonth"]  = df["Order Date"].dt.to_period("M").astype(str)
+    return df
+
+df = load_data()
+
+if df is None:
+    st.markdown("""
+    <div style='text-align:center;padding:80px 20px'>
+      <div style='font-size:52px;margin-bottom:16px'>📂</div>
+      <div style='font-size:22px;font-weight:600;color:#e8ecf5;margin-bottom:8px'>Upload IndiaSuperstore.csv</div>
+      <div style='font-size:14px;color:#5a7ab5'>Upload the dataset file below to begin.</div>
+    </div>""", unsafe_allow_html=True)
+    up = st.file_uploader("Upload IndiaSuperstore.csv", type=["csv"])
+    if up:
+        df = load_data(file=up)
+        st.rerun()
+    else:
+        st.stop()
+
+# ─── HEADER ──────────────────────────────────────────────────────────────────
 st.markdown("""
-<div class="hero">
-    <h2 style="margin:0;">India Executive Sales Dashboard</h2>
-    <p style="margin:6px 0 0 0;">Synthetic India view built from your dataset with state-level choropleth and executive KPIs</p>
+<div class="dash-header">
+  <div class="dash-title"><span class="dash-flag">🇮🇳</span>India Retail Analytics Dashboard</div>
+  <div class="dash-subtitle">State-wise Sales Intelligence • 26 States • 156 Cities • 5 Categories • 2021–2024</div>
+</div>""", unsafe_allow_html=True)
+
+# ─── FILTER BAR ──────────────────────────────────────────────────────────────
+st.markdown('<div class="filter-label">🔽 &nbsp;Dashboard Filters</div>', unsafe_allow_html=True)
+
+col_r, col_s, col_st, col_cat, col_seg, col_ship, col_yr, col_btn = st.columns([1,1,1.2,1.2,1,1,0.8,0.7])
+
+with col_r:
+    sel_region = st.multiselect("Region", sorted(df["Region"].unique()), default=sorted(df["Region"].unique()), key="region")
+with col_s:
+    state_opts = sorted(df[df["Region"].isin(sel_region)]["State"].unique())
+    sel_state  = st.multiselect("State", state_opts, default=state_opts, key="state")
+with col_st:
+    city_opts = sorted(df[df["State"].isin(sel_state)]["City"].unique())
+    sel_city  = st.multiselect("City", city_opts, default=city_opts, key="city")
+with col_cat:
+    sel_cat   = st.multiselect("Category", sorted(df["Category"].unique()), default=sorted(df["Category"].unique()), key="cat")
+with col_seg:
+    sel_seg   = st.multiselect("Segment", sorted(df["Segment"].unique()), default=sorted(df["Segment"].unique()), key="seg")
+with col_ship:
+    sel_ship  = st.multiselect("Ship Mode", sorted(df["Ship Mode"].unique()), default=sorted(df["Ship Mode"].unique()), key="ship")
+with col_yr:
+    sel_yr    = st.multiselect("Year", sorted(df["Year"].unique()), default=sorted(df["Year"].unique()), key="yr")
+with col_btn:
+    st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
+    if st.button("↺ Reset", use_container_width=True):
+        st.session_state.clear(); st.rerun()
+
+st.markdown("---")
+
+# ─── FILTER DATA ─────────────────────────────────────────────────────────────
+dff = df[
+    df["Region"].isin(sel_region) &
+    df["State"].isin(sel_state) &
+    df["City"].isin(sel_city) &
+    df["Category"].isin(sel_cat) &
+    df["Segment"].isin(sel_seg) &
+    df["Ship Mode"].isin(sel_ship) &
+    df["Year"].isin(sel_yr)
+]
+
+if dff.empty:
+    st.warning("No data matches your filters. Please adjust selections.")
+    st.stop()
+
+# ─── KPI CARDS ───────────────────────────────────────────────────────────────
+tot_sales   = dff["Sales"].sum()
+tot_profit  = dff["Profit"].sum()
+tot_orders  = len(dff)
+tot_qty     = dff["Quantity"].sum()
+avg_margin  = (tot_profit / tot_sales * 100) if tot_sales else 0
+avg_disc    = dff["Discount"].mean() * 100
+aov         = tot_sales / max(tot_orders, 1)
+
+def fmt_cr(v): return f"₹{v/1e7:.2f} Cr" if v >= 1e7 else f"₹{v/1e5:.1f}L"
+
+st.markdown(f"""
+<div class="kpi-row">
+  <div class="kpi saffron">
+    <div class="kpi-icon">💰</div>
+    <div class="kpi-label">Total Revenue</div>
+    <div class="kpi-value">{fmt_cr(tot_sales)}</div>
+    <div class="kpi-sub pos">▲ {tot_orders:,} orders</div>
+  </div>
+  <div class="kpi green">
+    <div class="kpi-icon">📈</div>
+    <div class="kpi-label">Net Profit</div>
+    <div class="kpi-value">{fmt_cr(tot_profit)}</div>
+    <div class="kpi-sub {'pos' if tot_profit>0 else 'neg'}">{'▲' if tot_profit>0 else '▼'} Margin {avg_margin:.1f}%</div>
+  </div>
+  <div class="kpi blue">
+    <div class="kpi-icon">📦</div>
+    <div class="kpi-label">Units Sold</div>
+    <div class="kpi-value">{tot_qty:,}</div>
+    <div class="kpi-sub pos">▲ Avg {tot_qty/max(tot_orders,1):.1f}/order</div>
+  </div>
+  <div class="kpi purple">
+    <div class="kpi-icon">🏷️</div>
+    <div class="kpi-label">Avg Order Value</div>
+    <div class="kpi-value">₹{aov:,.0f}</div>
+    <div class="kpi-sub">Avg disc {avg_disc:.1f}%</div>
+  </div>
+  <div class="kpi white">
+    <div class="kpi-icon">🏙️</div>
+    <div class="kpi-label">Active Cities</div>
+    <div class="kpi-value">{dff['City'].nunique()}</div>
+    <div class="kpi-sub">{dff['State'].nunique()} states</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-@st.cache_data
-def load_data(uploaded_file):
-    df = pd.read_csv(uploaded_file)
-    df.columns = [c.strip() for c in df.columns]
-    return df
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 1 — Revenue Trend & Monthly Seasonality
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">📅 &nbsp;Revenue Trend & Seasonality</div>', unsafe_allow_html=True)
+tr1, tr2 = st.columns([1.6, 1])
 
-def detect_date_col(df):
-    for c in df.columns:
-        if "date" in c.lower():
-            parsed = pd.to_datetime(df[c], errors="coerce")
-            if parsed.notna().sum() > 0:
-                return c
-    return None
+with tr1:
+    trend = dff.groupby("YearMonth").agg(Sales=("Sales","sum"), Profit=("Profit","sum")).reset_index()
+    trend = trend.sort_values("YearMonth")
+    fig_tr = go.Figure()
+    fig_tr.add_trace(go.Scatter(x=trend["YearMonth"], y=trend["Sales"],  name="Revenue",
+        line=dict(color=C["saffron"], width=2.5), fill="tozeroy",
+        fillcolor="rgba(255,153,51,0.08)", mode="lines+markers",
+        marker=dict(size=4, color=C["saffron"])))
+    fig_tr.add_trace(go.Scatter(x=trend["YearMonth"], y=trend["Profit"], name="Profit",
+        line=dict(color=C["green"], width=2), mode="lines+markers",
+        marker=dict(size=4, color=C["green"])))
+    fig_tr.update_layout(**PL("Monthly Revenue & Profit Trend", height=280,
+        extra={"legend":dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                             font=dict(size=10,color="#7c8db5"),bgcolor="rgba(0,0,0,0)")}))
+    fig_tr.update_xaxes(tickangle=-45, nticks=24)
+    fig_tr.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_tr, use_container_width=True)
 
-def build_india_mapping(us_states):
-    india_states = [
-        "Maharashtra","Karnataka","Tamil Nadu","Gujarat","Rajasthan","Uttar Pradesh","Bihar",
-        "West Bengal","Madhya Pradesh","Kerala","Punjab","Haryana","Telangana","Andhra Pradesh",
-        "Odisha","Assam","Jharkhand","Chhattisgarh","Delhi","Himachal Pradesh","Uttarakhand",
-        "Goa","Tripura","Meghalaya","Manipur","Mizoram","Nagaland","Arunachal Pradesh","Sikkim"
-    ]
-    region_map = {
-        "Maharashtra": "West", "Karnataka": "South", "Tamil Nadu": "South", "Gujarat": "West",
-        "Rajasthan": "North", "Uttar Pradesh": "North", "Bihar": "East", "West Bengal": "East",
-        "Madhya Pradesh": "Central", "Kerala": "South", "Punjab": "North", "Haryana": "North",
-        "Telangana": "South", "Andhra Pradesh": "South", "Odisha": "East", "Assam": "North East",
-        "Jharkhand": "East", "Chhattisgarh": "Central", "Delhi": "North", "Himachal Pradesh": "North",
-        "Uttarakhand": "North", "Goa": "West", "Tripura": "North East", "Meghalaya": "North East",
-        "Manipur": "North East", "Mizoram": "North East", "Nagaland": "North East",
-        "Arunachal Pradesh": "North East", "Sikkim": "North East"
-    }
-    mapping = {}
-    for i, s in enumerate(us_states):
-        mapping[s] = india_states[i % len(india_states)]
-    return mapping, region_map
+with tr2:
+    month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    seas = dff.groupby("MonthName")["Sales"].sum().reset_index()
+    seas["sort"] = seas["MonthName"].apply(lambda x: month_order.index(x) if x in month_order else 99)
+    seas = seas.sort_values("sort")
+    fig_seas = go.Figure(go.Bar(
+        x=seas["MonthName"], y=seas["Sales"],
+        marker_color=[C["saffron"] if m in ["Oct","Nov","Dec"] else C["blue"] for m in seas["MonthName"]],
+        marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in seas["Sales"]], textposition="outside",
+        textfont=dict(size=9, color="#c8ccd8"),
+    ))
+    fig_seas.update_layout(**PL("Monthly Seasonality (Festive = 🟠)", height=280))
+    fig_seas.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_seas, use_container_width=True)
 
-def normalize_state_name(s):
-    return str(s).strip()
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 2 — Category Performance
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">🛍️ &nbsp;Category Performance</div>', unsafe_allow_html=True)
+ca1, ca2, ca3 = st.columns(3)
 
-uploaded = st.sidebar.file_uploader("Upload CSV", type=["csv"])
-if uploaded is None:
-    st.info("Upload SampleSuperstore.csv to continue.")
-    st.stop()
+with ca1:
+    cat_s = dff.groupby("Category")["Sales"].sum().reset_index().sort_values("Sales", ascending=False)
+    fig_cs = go.Figure(go.Bar(
+        x=cat_s["Category"], y=cat_s["Sales"],
+        marker_color=[C["cat"][c] for c in cat_s["Category"]], marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in cat_s["Sales"]], textposition="outside",
+        textfont=dict(size=10, color="#c8ccd8"),
+    ))
+    fig_cs.update_layout(**PL("Revenue by Category", height=280))
+    fig_cs.update_xaxes(tickangle=-20)
+    fig_cs.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_cs, use_container_width=True)
 
-df = load_data(uploaded)
+with ca2:
+    cat_p = dff.groupby("Category")["Profit"].sum().reset_index().sort_values("Profit", ascending=False)
+    fig_cp = go.Figure(go.Bar(
+        x=cat_p["Category"], y=cat_p["Profit"],
+        marker_color=[C["green"] if v >= 0 else C["red"] for v in cat_p["Profit"]], marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in cat_p["Profit"]], textposition="outside",
+        textfont=dict(size=10, color="#c8ccd8"),
+    ))
+    fig_cp.update_layout(**PL("Profit by Category", height=280))
+    fig_cp.update_xaxes(tickangle=-20)
+    fig_cp.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_cp, use_container_width=True)
 
-state_col = next((c for c in df.columns if c.lower() == "state"), None)
-sales_col = next((c for c in df.columns if c.lower() == "sales"), None)
-profit_col = next((c for c in df.columns if c.lower() == "profit"), None)
-qty_col = next((c for c in df.columns if c.lower() == "quantity"), None)
-disc_col = next((c for c in df.columns if c.lower() == "discount"), None)
-cat_col = next((c for c in df.columns if c.lower() == "category"), None)
-subcat_col = next((c for c in df.columns if c.lower() in ["sub-category", "subcategory"]), None)
-segment_col = next((c for c in df.columns if c.lower() == "segment"), None)
-ship_col = next((c for c in df.columns if c.lower() == "ship mode"), None)
-date_col = detect_date_col(df)
+with ca3:
+    cat_qty = dff.groupby("Category")["Quantity"].sum().reset_index()
+    fig_pie = go.Figure(go.Pie(
+        labels=cat_qty["Category"], values=cat_qty["Quantity"], hole=0.55,
+        marker_colors=[C["cat"][c] for c in cat_qty["Category"]],
+        textinfo="label+percent", textfont=dict(size=10, color="#c8ccd8"),
+        insidetextorientation="radial",
+    ))
+    fig_pie.update_layout(**PL("Units Share by Category", height=280, extra={"showlegend":False}))
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-if any(c is None for c in [state_col, sales_col, profit_col, qty_col, disc_col]):
-    st.error("Required columns not found: State, Sales, Profit, Quantity, Discount.")
-    st.stop()
+# Sub-category
+st.markdown('<div class="sec">📊 &nbsp;Sub-Category Deep Dive</div>', unsafe_allow_html=True)
+sb1, sb2 = st.columns(2)
 
-for c in [sales_col, profit_col, qty_col, disc_col]:
-    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+with sb1:
+    sub_s = dff.groupby(["Category","Sub-Category"])["Sales"].sum().reset_index().sort_values("Sales")
+    fig_ss = go.Figure(go.Bar(
+        x=sub_s["Sales"], y=sub_s["Sub-Category"], orientation="h",
+        marker_color=[C["cat"][c] for c in sub_s["Category"]], marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in sub_s["Sales"]], textposition="outside",
+        textfont=dict(size=9, color="#c8ccd8"),
+    ))
+    fig_ss.update_layout(**PL("Revenue by Sub-Category", height=480, margin=dict(l=8,r=70,t=36,b=8)))
+    fig_ss.update_xaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_ss, use_container_width=True)
 
-if date_col:
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+with sb2:
+    sub_p = dff.groupby("Sub-Category")["Profit"].sum().reset_index().sort_values("Profit")
+    fig_sp = go.Figure(go.Bar(
+        x=sub_p["Profit"], y=sub_p["Sub-Category"], orientation="h",
+        marker_color=[C["green"] if v >= 0 else C["red"] for v in sub_p["Profit"]], marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in sub_p["Profit"]], textposition="outside",
+        textfont=dict(size=9, color="#c8ccd8"),
+    ))
+    fig_sp.update_layout(**PL("Profit/Loss by Sub-Category", height=480, margin=dict(l=8,r=70,t=36,b=8)))
+    fig_sp.update_xaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_sp, use_container_width=True)
 
-us_states = sorted(df[state_col].dropna().astype(str).unique().tolist())
-us_to_india, india_region_map = build_india_mapping(us_states)
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 3 — India State-wise Analysis
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">🗺️ &nbsp;State-wise & Regional Analysis</div>', unsafe_allow_html=True)
+g1, g2 = st.columns([1.4, 0.6])
 
-df["India State"] = df[state_col].astype(str).map(us_to_india)
-df["India Region"] = df["India State"].map(india_region_map)
-
-if date_col:
-    df["Month"] = df[date_col].dt.to_period("M").astype(str)
-
-st.sidebar.header("Filters")
-regions = sorted(df["India Region"].dropna().unique().tolist())
-states = sorted(df["India State"].dropna().unique().tolist())
-categories = sorted(df[cat_col].dropna().astype(str).unique().tolist()) if cat_col else []
-segments = sorted(df[segment_col].dropna().astype(str).unique().tolist()) if segment_col else []
-ship_modes = sorted(df[ship_col].dropna().astype(str).unique().tolist()) if ship_col else []
-
-sel_regions = st.sidebar.multiselect("India Region", regions, default=regions)
-sel_states = st.sidebar.multiselect("India State", states, default=states)
-sel_categories = st.sidebar.multiselect("Category", categories, default=categories) if categories else []
-sel_segments = st.sidebar.multiselect("Segment", segments, default=segments) if segments else []
-sel_ship = st.sidebar.multiselect("Ship Mode", ship_modes, default=ship_modes) if ship_col else []
-
-f = df[df["India Region"].isin(sel_regions) & df["India State"].isin(sel_states)]
-if cat_col and sel_categories:
-    f = f[f[cat_col].astype(str).isin(sel_categories)]
-if segment_col and sel_segments:
-    f = f[f[segment_col].astype(str).isin(sel_segments)]
-if ship_col and sel_ship:
-    f = f[f[ship_col].astype(str).isin(sel_ship)]
-
-geo_path = Path("india_states.geojson")
-geojson_data = None
-if geo_path.exists():
-    with open(geo_path, "r", encoding="utf-8") as fp:
-        geojson_data = json.load(fp)
-else:
-    st.warning("india_states.geojson not found. The choropleth will be replaced by a bar chart unless you add the geojson file.")
-
-state_summary = f.groupby(["India State", "India Region"], as_index=False).agg(
-    Sales=(sales_col, "sum"),
-    Profit=(profit_col, "sum"),
-    Quantity=(qty_col, "sum"),
-    AvgDiscount=(disc_col, "mean")
-)
-state_summary["Profit Margin %"] = np.where(state_summary["Sales"] != 0, state_summary["Profit"] / state_summary["Sales"] * 100, 0)
-
-total_sales = f[sales_col].sum()
-total_profit = f[profit_col].sum()
-total_qty = f[qty_col].sum()
-avg_discount = f[disc_col].mean()
-profit_margin = (total_profit / total_sales * 100) if total_sales else 0
-order_count = len(f)
-
-k1, k2, k3, k4, k5, k6 = st.columns(6)
-vals = [
-    ("Total Sales", f"{total_sales:,.2f}"),
-    ("Total Profit", f"{total_profit:,.2f}"),
-    ("Profit Margin %", f"{profit_margin:,.2f}%"),
-    ("Orders", f"{order_count:,}"),
-    ("Quantity", f"{total_qty:,.0f}"),
-    ("Avg Discount", f"{avg_discount:,.2f}%"),
-]
-for col, (label, val) in zip([k1, k2, k3, k4, k5, k6], vals):
-    with col:
-        st.markdown('<div class="kpi">', unsafe_allow_html=True)
-        st.metric(label, val)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-c1, c2 = st.columns([1.25, 1])
-
-with c1:
-    if geojson_data is not None:
-        geo_df = state_summary.copy()
-        fig = px.choropleth(
-            geo_df,
-            geojson=geojson_data,
-            locations="India State",
-            featureidkey="properties.ST_NM",
-            color="Sales",
-            color_continuous_scale="Blues",
-            scope="asia",
-            title="India State-wise Sales Map"
-        )
-        fig.update_geos(fitbounds="locations", visible=False)
-        fig.update_layout(height=560, template="plotly_white", margin=dict(l=0, r=0, t=50, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        top_map = state_summary.sort_values("Sales", ascending=False).head(15)
-        fig = px.bar(top_map, x="Sales", y="India State", orientation="h", color="Sales", color_continuous_scale="Blues", title="Top States by Sales")
-        fig.update_layout(height=560, template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
-
-with c2:
-    region_agg = f.groupby("India Region", as_index=False).agg(Sales=(sales_col, "sum"), Profit=(profit_col, "sum"), Quantity=(qty_col, "sum"))
-    fig = px.bar(region_agg, x="India Region", y="Sales", color="Profit", color_continuous_scale="RdYlGn", title="Sales by India Region")
-    fig.update_layout(height=260, template="plotly_white")
-    st.plotly_chart(fig, use_container_width=True)
-
-    if date_col and "Month" in f.columns and not f.empty:
-        ts = f.groupby("Month", as_index=False).agg(Sales=(sales_col, "sum"), Profit=(profit_col, "sum"))
-        ts["MonthSort"] = pd.to_datetime(ts["Month"] + "-01")
-        ts = ts.sort_values("MonthSort")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=ts["Month"], y=ts["Sales"], mode="lines+markers", name="Sales", line=dict(color="#2563eb", width=3)))
-        fig.add_trace(go.Scatter(x=ts["Month"], y=ts["Profit"], mode="lines+markers", name="Profit", line=dict(color="#16a34a", width=3)))
-        fig.update_layout(height=260, title="Monthly Trend", template="plotly_white", legend_title_text="")
-        st.plotly_chart(fig, use_container_width=True)
-
-c3, c4 = st.columns(2)
-
-with c3:
-    if cat_col:
-        cat = f.groupby(cat_col, as_index=False).agg(Sales=(sales_col, "sum"), Profit=(profit_col, "sum")).sort_values("Sales", ascending=False)
-        fig = px.bar(cat, x=cat_col, y="Sales", color="Profit", color_continuous_scale="Viridis", title="Category Performance")
-        fig.update_layout(height=420, template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
-
-with c4:
-    if subcat_col:
-        sub = f.groupby(subcat_col, as_index=False).agg(Sales=(sales_col, "sum"), Profit=(profit_col, "sum")).sort_values("Profit", ascending=False)
-        fig = px.bar(sub.head(10), x=subcat_col, y="Profit", color="Profit", color_continuous_scale="Plasma", title="Top Sub-Categories by Profit")
-        fig.update_layout(height=420, template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
-
-c5, c6 = st.columns(2)
-
-with c5:
-    if segment_col:
-        seg = f.groupby(segment_col, as_index=False).agg(Sales=(sales_col, "sum"))
-        fig = px.pie(seg, values="Sales", names=segment_col, hole=0.5, title="Sales Share by Segment")
-        fig.update_layout(height=420, template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
-
-with c6:
-    if ship_col:
-        ship = f.groupby(ship_col, as_index=False).agg(Orders=(ship_col, "size"), Profit=(profit_col, "sum")).sort_values("Orders", ascending=False)
-        fig = px.bar(ship, x=ship_col, y="Orders", color="Profit", color_continuous_scale="Cividis", title="Orders by Ship Mode")
-        fig.update_layout(height=420, template="plotly_white")
-        st.plotly_chart(fig, use_container_width=True)
-
-c7, c8 = st.columns(2)
-
-with c7:
-    top_states = state_summary.sort_values("Sales", ascending=False).head(10)
-    fig = px.bar(top_states, x="Sales", y="India State", orientation="h", color="Profit", color_continuous_scale="Tealgrn", title="Top 10 Indian States by Sales")
-    fig.update_layout(height=420, template="plotly_white")
-    st.plotly_chart(fig, use_container_width=True)
-
-with c8:
-    sc = px.scatter(
-        f,
-        x=disc_col,
-        y=profit_col,
-        color="India Region",
-        size=sales_col,
-        hover_data=["India State", cat_col] if cat_col else ["India State"],
-        title="Discount vs Profit",
-        template="plotly_white"
+with g1:
+    top_n = st.slider("Top N States", 5, 26, 15, key="top_states")
+    state_d = (
+        dff.groupby(["State","Region"])
+        .agg(Sales=("Sales","sum"), Profit=("Profit","sum"), Orders=("Sales","count"))
+        .reset_index().sort_values("Sales", ascending=False).head(top_n).sort_values("Sales")
     )
-    sc.update_layout(height=420)
-    st.plotly_chart(sc, use_container_width=True)
+    fig_state = go.Figure()
+    fig_state.add_trace(go.Bar(name="Revenue", x=state_d["Sales"],  y=state_d["State"],
+        orientation="h", marker_color=[C["region"][r] for r in state_d["Region"]], marker_line_width=0))
+    fig_state.add_trace(go.Bar(name="Profit",  x=state_d["Profit"], y=state_d["State"],
+        orientation="h", marker_color=C["green"], marker_line_width=0, opacity=0.7))
+    fig_state.update_layout(**PL(f"Top {top_n} States — Revenue vs Profit",
+        height=top_n*30+80, margin=dict(l=8,r=10,t=36,b=8),
+        extra={"barmode":"overlay",
+               "legend":dict(orientation="h",yanchor="bottom",y=1.02,xanchor="right",x=1,
+                             font=dict(size=10,color="#7c8db5"),bgcolor="rgba(0,0,0,0)")}))
+    fig_state.update_xaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_state, use_container_width=True)
 
-st.subheader("State-level Executive Table")
-st.dataframe(
-    state_summary.sort_values("Sales", ascending=False),
-    use_container_width=True,
-    hide_index=True
-)
+with g2:
+    reg = dff.groupby("Region")["Sales"].sum().reset_index()
+    fig_r = go.Figure(go.Pie(
+        labels=reg["Region"], values=reg["Sales"], hole=0.55,
+        marker_colors=[C["region"][r] for r in reg["Region"]],
+        textinfo="label+percent", textfont=dict(size=11, color="#c8ccd8"),
+        insidetextorientation="radial",
+    ))
+    fig_r.update_layout(**PL("Revenue by Region", height=320, extra={"showlegend":False}))
+    st.plotly_chart(fig_r, use_container_width=True)
 
-st.download_button(
-    "Download filtered data as CSV",
-    data=f.to_csv(index=False).encode("utf-8"),
-    file_name="india_executive_dashboard_data.csv",
-    mime="text/csv"
+    reg_profit = dff.groupby("Region")["Profit"].sum().reset_index().sort_values("Profit", ascending=False)
+    fig_rp = go.Figure(go.Bar(
+        x=reg_profit["Region"], y=reg_profit["Profit"],
+        marker_color=[C["region"][r] for r in reg_profit["Region"]], marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in reg_profit["Profit"]], textposition="outside",
+        textfont=dict(size=10, color="#c8ccd8"),
+    ))
+    fig_rp.update_layout(**PL("Profit by Region", height=220, margin=dict(l=8,r=8,t=36,b=8)))
+    fig_rp.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_rp, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 4 — Heatmap & Profit Margin
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">🔥 &nbsp;Cross-Dimensional Analysis</div>', unsafe_allow_html=True)
+h1, h2 = st.columns(2)
+
+with h1:
+    heat = dff.pivot_table(index="Category", columns="Region", values="Sales", aggfunc="sum").fillna(0)
+    fig_hm = go.Figure(go.Heatmap(
+        z=heat.values, x=heat.columns.tolist(), y=heat.index.tolist(),
+        colorscale=[[0,"#0a1628"],[0.4,"#0f3460"],[0.7,"#FF9933"],[1,"#138808"]],
+        text=[[f"₹{v/1e5:.0f}L" for v in row] for row in heat.values],
+        texttemplate="%{text}", textfont=dict(size=11, color="#e8ecf5"),
+        showscale=True, colorbar=dict(tickfont=dict(color="#5a7ab5",size=9), thickness=10),
+    ))
+    fig_hm.update_layout(**PL("Revenue Heatmap: Category × Region", height=260, margin=dict(l=8,r=60,t=36,b=8)))
+    st.plotly_chart(fig_hm, use_container_width=True)
+
+with h2:
+    seg_cat = dff.pivot_table(index="Segment", columns="Category", values="Sales", aggfunc="sum").fillna(0)
+    fig_hm2 = go.Figure(go.Heatmap(
+        z=seg_cat.values, x=seg_cat.columns.tolist(), y=seg_cat.index.tolist(),
+        colorscale=[[0,"#0a1628"],[0.4,"#1a3a6e"],[0.7,"#4f8ef7"],[1,"#a78bfa"]],
+        text=[[f"₹{v/1e5:.0f}L" for v in row] for row in seg_cat.values],
+        texttemplate="%{text}", textfont=dict(size=11, color="#e8ecf5"),
+        showscale=True, colorbar=dict(tickfont=dict(color="#5a7ab5",size=9), thickness=10),
+    ))
+    fig_hm2.update_layout(**PL("Revenue Heatmap: Segment × Category", height=260, margin=dict(l=8,r=60,t=36,b=8)))
+    st.plotly_chart(fig_hm2, use_container_width=True)
+
+# Profit margin + Discount scatter
+m1, m2 = st.columns(2)
+with m1:
+    margin_sub = (
+        dff.groupby("Sub-Category")
+        .apply(lambda x: (x["Profit"].sum()/x["Sales"].sum())*100 if x["Sales"].sum() else 0)
+        .reset_index(name="Margin").sort_values("Margin", ascending=False)
+    )
+    fig_mg = go.Figure(go.Bar(
+        x=margin_sub["Sub-Category"], y=margin_sub["Margin"],
+        marker_color=[C["green"] if v >= 0 else C["red"] for v in margin_sub["Margin"]],
+        marker_line_width=0,
+        text=[f"{v:.1f}%" for v in margin_sub["Margin"]], textposition="outside",
+        textfont=dict(size=9, color="#c8ccd8"),
+    ))
+    fig_mg.add_hline(y=0, line_color=C["pink"], line_dash="dot", line_width=1)
+    fig_mg.update_layout(**PL("Profit Margin % by Sub-Category", height=270))
+    fig_mg.update_xaxes(tickangle=-40)
+    fig_mg.update_yaxes(ticksuffix="%")
+    st.plotly_chart(fig_mg, use_container_width=True)
+
+with m2:
+    samp = dff.sample(min(3000,len(dff)), random_state=42)
+    fig_sc = go.Figure(go.Scatter(
+        x=samp["Discount"], y=samp["Profit"], mode="markers",
+        marker=dict(size=4, color=samp["Sales"],
+                    colorscale=[[0,"#0a1628"],[0.5,"#FF9933"],[1,"#138808"]],
+                    showscale=True,
+                    colorbar=dict(title=dict(text="Sales (₹)",font=dict(color="#5a7ab5",size=9)),
+                                  tickfont=dict(color="#5a7ab5",size=9),thickness=10,len=0.7),
+                    opacity=0.65, line=dict(width=0)),
+        hovertemplate="Discount: %{x:.0%}<br>Profit: ₹%{y:,.0f}<extra></extra>",
+    ))
+    fig_sc.add_hline(y=0, line_color=C["pink"], line_dash="dot", line_width=1.5)
+    fig_sc.update_layout(**PL("Discount vs Profit Impact", height=270))
+    fig_sc.update_xaxes(tickformat=".0%", title_text="Discount", title_font=dict(size=10,color="#5a7ab5"))
+    fig_sc.update_yaxes(tickprefix="₹", title_text="Profit",    title_font=dict(size=10,color="#5a7ab5"))
+    st.plotly_chart(fig_sc, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 5 — Segment & Ship Mode
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">👥 &nbsp;Segment & Shipping Analysis</div>', unsafe_allow_html=True)
+d1, d2, d3, d4 = st.columns(4)
+
+def donut(grp, col, cmap, title, height=220):
+    fig = go.Figure(go.Pie(
+        labels=grp[col], values=grp["Sales"], hole=0.55,
+        marker_colors=[cmap.get(v,"#888") for v in grp[col]],
+        textinfo="label+percent", textfont=dict(size=10,color="#c8ccd8"),
+        insidetextorientation="radial",
+    ))
+    fig.update_layout(**PL(title, height=height, extra={"showlegend":False}))
+    return fig
+
+with d1:
+    st.plotly_chart(donut(dff.groupby("Segment")["Sales"].sum().reset_index(), "Segment", C["seg"], "Sales by Segment"), use_container_width=True)
+with d2:
+    st.plotly_chart(donut(dff.groupby("Ship Mode")["Sales"].sum().reset_index(), "Ship Mode", C["ship"], "Sales by Ship Mode"), use_container_width=True)
+with d3:
+    yr_q = dff.groupby("Quarter")["Sales"].sum().reset_index()
+    qcolors = {"Q1":C["blue"],"Q2":C["saffron"],"Q3":C["purple"],"Q4":C["green"]}
+    st.plotly_chart(donut(yr_q, "Quarter", qcolors, "Sales by Quarter"), use_container_width=True)
+with d4:
+    seg_profit = dff.groupby("Segment")["Profit"].sum().reset_index().sort_values("Profit", ascending=False)
+    fig_sp2 = go.Figure(go.Bar(
+        x=seg_profit["Segment"], y=seg_profit["Profit"],
+        marker_color=[C["seg"][s] for s in seg_profit["Segment"]], marker_line_width=0,
+        text=[f"₹{v/1e5:.0f}L" for v in seg_profit["Profit"]], textposition="outside",
+        textfont=dict(size=10, color="#c8ccd8"),
+    ))
+    fig_sp2.update_layout(**PL("Profit by Segment", height=220))
+    fig_sp2.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_sp2, use_container_width=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 6 — Top Cities Table & Product Table
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">🏙️ &nbsp;City & Product Intelligence</div>', unsafe_allow_html=True)
+tb1, tb2 = st.columns(2)
+
+with tb1:
+    city_df = (
+        dff.groupby(["City","State","Region"])
+        .agg(Revenue=("Sales","sum"), Profit=("Profit","sum"),
+             Orders=("Sales","count"), Qty=("Quantity","sum"))
+        .reset_index().sort_values("Revenue", ascending=False).head(20)
+    )
+    city_df["Margin%"] = (city_df["Profit"]/city_df["Revenue"]*100).round(1).map("{:.1f}%".format)
+    city_df["Revenue"] = city_df["Revenue"].map("₹{:,.0f}".format)
+    city_df["Profit"]  = city_df["Profit"].map("₹{:,.0f}".format)
+    st.markdown("**🏆 Top 20 Cities by Revenue**")
+    st.dataframe(city_df, use_container_width=True, hide_index=True, height=460)
+
+with tb2:
+    prod_df = (
+        dff.groupby(["Product Name","Category","Sub-Category"])
+        .agg(Revenue=("Sales","sum"), Profit=("Profit","sum"),
+             Orders=("Sales","count"), Qty=("Quantity","sum"))
+        .reset_index().sort_values("Revenue", ascending=False).head(20)
+    )
+    prod_df["Margin%"] = (prod_df["Profit"]/prod_df["Revenue"]*100).round(1).map("{:.1f}%".format)
+    prod_df["Revenue"] = prod_df["Revenue"].map("₹{:,.0f}".format)
+    prod_df["Profit"]  = prod_df["Profit"].map("₹{:,.0f}".format)
+    st.markdown("**🛒 Top 20 Products by Revenue**")
+    st.dataframe(prod_df, use_container_width=True, hide_index=True, height=460)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECTION 7 — Year-over-Year & State-wise Profit Heatmap
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown('<div class="sec">📆 &nbsp;Year-over-Year & State Profit Heatmap</div>', unsafe_allow_html=True)
+y1, y2 = st.columns([1.2, 0.8])
+
+with y1:
+    yoy = dff.groupby(["Year","Category"])["Sales"].sum().reset_index()
+    fig_yoy = px.bar(yoy, x="Year", y="Sales", color="Category",
+                     barmode="group", color_discrete_map=C["cat"], text_auto=False)
+    fig_yoy.update_traces(marker_line_width=0)
+    fig_yoy.update_layout(**PL("Year-over-Year Revenue by Category", height=290,
+        extra={"legend":dict(orientation="h",yanchor="bottom",y=1.02,xanchor="right",x=1,
+                             font=dict(size=10,color="#7c8db5"),bgcolor="rgba(0,0,0,0)")}))
+    fig_yoy.update_yaxes(tickprefix="₹", tickformat=",.0f")
+    st.plotly_chart(fig_yoy, use_container_width=True)
+
+with y2:
+    state_profit_heat = dff.pivot_table(index="State", columns="Year", values="Profit", aggfunc="sum").fillna(0)
+    fig_sph = go.Figure(go.Heatmap(
+        z=state_profit_heat.values,
+        x=[str(c) for c in state_profit_heat.columns.tolist()],
+        y=state_profit_heat.index.tolist(),
+        colorscale=[[0,"#f87171"],[0.5,"#0a1628"],[1,"#138808"]],
+        text=[[f"₹{v/1e5:.0f}L" for v in row] for row in state_profit_heat.values],
+        texttemplate="%{text}", textfont=dict(size=8, color="#e8ecf5"),
+        showscale=True, colorbar=dict(tickfont=dict(color="#5a7ab5",size=9),thickness=10),
+    ))
+    fig_sph.update_layout(**PL("State Profit Heatmap by Year", height=290, margin=dict(l=8,r=60,t=36,b=8)))
+    st.plotly_chart(fig_sph, use_container_width=True)
+
+# ─── FOOTER ──────────────────────────────────────────────────────────────────
+st.markdown("---")
+st.markdown(
+    "<div style='text-align:center;color:#1e3050;font-size:12px;padding:8px 0'>"
+    "🇮🇳 India Retail Analytics Dashboard • 26 States • 156 Cities • Streamlit + Plotly"
+    "</div>",
+    unsafe_allow_html=True,
 )
