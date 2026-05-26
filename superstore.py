@@ -36,32 +36,150 @@ st.set_page_config(
 # CUSTOM CSS
 # ============================================================
 
+# ============================================================
+# LIGHT PROFESSIONAL CSS
+# ============================================================
+
 st.markdown("""
 <style>
 
-body {
-    background-color: #020617;
+/* MAIN APP */
+
+.stApp {
+    background-color: #f4f7fb;
+    color: #1e293b;
 }
 
-.main {
-    background-color: #020617;
+/* MAIN CONTAINER */
+
+.main .block-container {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+}
+
+/* HEADINGS */
+
+h1, h2, h3, h4, h5 {
+    color: #0f172a !important;
+    font-family: 'Segoe UI', sans-serif;
+    font-weight: 700;
+}
+
+/* METRIC CARDS */
+
+[data-testid="stMetric"] {
+    background: white;
+    border: 1px solid #e2e8f0;
+    padding: 22px;
+    border-radius: 18px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    transition: 0.3s ease;
+}
+
+[data-testid="stMetric"]:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+}
+
+/* METRIC LABEL */
+
+[data-testid="stMetricLabel"] {
+    color: #64748b !important;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+/* METRIC VALUE */
+
+[data-testid="stMetricValue"] {
+    color: #0f172a !important;
+    font-size: 34px;
+    font-weight: 700;
+}
+
+/* SIDEBAR */
+
+section[data-testid="stSidebar"] {
+    background: white;
+    border-right: 1px solid #e2e8f0;
+}
+
+/* SIDEBAR TEXT */
+
+section[data-testid="stSidebar"] * {
+    color: #1e293b !important;
+}
+
+/* FILTER DROPDOWN */
+
+.stMultiSelect div[data-baseweb="select"] {
+    background-color: white;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1;
+}
+
+/* DATAFRAME */
+
+[data-testid="stDataFrame"] {
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+}
+
+/* BUTTONS */
+
+.stButton button {
+    background: linear-gradient(90deg,#2563eb,#3b82f6);
+    color: white;
+    border-radius: 10px;
+    border: none;
+    padding: 10px 22px;
+    font-weight: 600;
+}
+
+.stButton button:hover {
+    background: linear-gradient(90deg,#1d4ed8,#2563eb);
     color: white;
 }
 
-[data-testid="stMetric"] {
-    background: linear-gradient(145deg,#0f172a,#111827);
-    border: 1px solid #1e293b;
-    padding: 15px;
+/* SUCCESS BOX */
+
+.stAlert {
+    border-radius: 14px;
+}
+
+/* PLOTLY CHART AREA */
+
+.js-plotly-plot {
     border-radius: 18px;
-    box-shadow: 0px 0px 10px rgba(0,0,0,0.4);
+    background: white !important;
+    padding: 10px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.05);
 }
 
-h1,h2,h3,h4 {
-    color: white !important;
+/* DIVIDER */
+
+hr {
+    border-color: #cbd5e1;
 }
 
-section[data-testid="stSidebar"] {
-    background-color: #0f172a;
+/* SCROLLBAR */
+
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 20px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
 }
 
 </style>
