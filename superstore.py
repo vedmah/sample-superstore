@@ -1,725 +1,796 @@
-import os
-import streamlit as st
+"""
+India Superstore — Live Business Intelligence Dashboard
+Flask + Chart.js + RAG (Claude API)
+Auto-simulates new orders every few seconds like a trading feed
+"""
+
+import os, json, random, threading, time, datetime, math
+from collections import deque
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import numpy as np
-from datetime import datetime, date, timedelta
+from flask import Flask, jsonify, render_template_string, request
 
-# ─── LIVE DATE ────────────────────────────────────────────────────────────────
-TODAY        = datetime.now()
-CURRENT_YEAR = TODAY.year
-CURRENT_MON  = TODAY.month
-DATA_THRU    = TODAY.strftime("%d %b %Y")   # e.g. "25 May 2026"
+# ── Load dataset ────────────────────────────────────────────────────────────
+CSV_PATH = os.path.join(os.path.dirname(__file__), "IndiaSuperstore.csv")
+BASE_DF  = pd.read_csv(CSV_PATH, parse_dates=["Order Date", "Ship Date"])
 
-# ─── PAGE CONFIG ─────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title=f"India Retail Analytics — Live {CURRENT_YEAR}",
-    page_icon="🇮🇳",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# ─── CSS ─────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
-html,body,[class*="css"]{font-family:'DM Sans',sans-serif;}
-#MainMenu{visibility:hidden;}footer{visibility:hidden;}header{visibility:hidden;}
-[data-testid="collapsedControl"]{display:none!important;}
-[data-testid="stSidebar"]{display:none!important;}
-.stApp{background:#0a0e1a;}
-
-.dash-header{background:linear-gradient(135deg,#0d1b3e 0%,#0f2b5b 50%,#1a1f3a 100%);
-  border-bottom:1px solid #1e3a6e;padding:18px 24px 14px;border-radius:0 0 16px 16px;margin-bottom:18px;}
-.dash-title{font-size:26px;font-weight:700;color:#e8ecf5;letter-spacing:-0.02em;display:flex;align-items:center;gap:10px;}
-.dash-subtitle{font-size:13px;color:#5a7ab5;margin-top:3px;}
-
-/* LIVE badge */
-.live-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(19,136,8,0.15);
-  border:1px solid #138808;border-radius:20px;padding:3px 10px;font-size:11px;
-  font-weight:600;color:#2ec27e;letter-spacing:0.05em;}
-.live-dot{width:7px;height:7px;border-radius:50%;background:#2ec27e;
-  animation:pulse 1.5s infinite;}
-@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.3;}}
-
-/* Last updated strip */
-.last-updated{background:#0d1528;border:1px solid #1a3050;border-radius:8px;
-  padding:6px 14px;font-size:12px;color:#4a6490;display:inline-flex;align-items:center;gap:8px;margin-bottom:14px;}
-
-[data-testid="stMultiSelect"]>div{background:#111827!important;border:1px solid #1e3050!important;border-radius:8px!important;}
-[data-testid="stMultiSelect"] span{color:#c8ccd8!important;}
-.stMultiSelect label{color:#4a6490!important;font-size:10px!important;text-transform:uppercase;letter-spacing:0.07em;}
-[data-testid="stSelectbox"]>div>div{background:#111827!important;border:1px solid #1e3050!important;border-radius:8px!important;color:#c8ccd8!important;}
-.stSelectbox label{color:#4a6490!important;font-size:10px!important;text-transform:uppercase;letter-spacing:0.07em;}
-
-.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px;}
-.kpi{background:linear-gradient(135deg,#111827,#151f35);border:1px solid #1e3050;border-radius:12px;
-     padding:16px 18px;position:relative;overflow:hidden;}
-.kpi::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;border-radius:3px 0 0 3px;}
-.kpi.saffron::before{background:#FF9933;}
-.kpi.white::before{background:#e8ecf5;}
-.kpi.green::before{background:#138808;}
-.kpi.blue::before{background:#4f8ef7;}
-.kpi.purple::before{background:#a78bfa;}
-.kpi-icon{font-size:18px;margin-bottom:6px;}
-.kpi-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#4a6490;margin-bottom:4px;}
-.kpi-value{font-size:22px;font-weight:700;color:#e8ecf5;font-family:'DM Mono',monospace;line-height:1.1;}
-.kpi-sub{font-size:11px;margin-top:4px;color:#5a7ab5;}
-.kpi-sub.pos{color:#138808;}
-.kpi-sub.neg{color:#e05c5c;}
-
-/* YTD highlight card */
-.ytd-card{background:linear-gradient(135deg,#0d2010,#0f2b10);border:1px solid #1a4020;
-  border-radius:12px;padding:14px 18px;margin-bottom:14px;}
-.ytd-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;
-  color:#2ec27e;margin-bottom:8px;display:flex;align-items:center;gap:6px;}
-.ytd-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
-.ytd-item{text-align:center;}
-.ytd-val{font-size:18px;font-weight:700;color:#e8ecf5;font-family:'DM Mono',monospace;}
-.ytd-lbl{font-size:10px;color:#4a7050;margin-top:2px;}
-
-.filter-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;color:#4a6490;margin-bottom:6px;}
-.sec{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#4a6490;
-     padding:8px 0;border-bottom:1px solid #1a2540;margin-bottom:2px;display:flex;align-items:center;gap:8px;}
-hr{border-color:#1a2540!important;}
-.stSlider label{color:#4a6490!important;font-size:10px!important;text-transform:uppercase;}
-</style>
-""", unsafe_allow_html=True)
-
-# ─── PLOT LAYOUT HELPER ───────────────────────────────────────────────────────
-def PL(title="", height=None, margin=None, extra=None):
-    m = margin or dict(l=8, r=8, t=36, b=8)
-    base = dict(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="DM Sans", color="#c8ccd8", size=11),
-        margin=m,
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(size=10, color="#7c8db5")),
-        xaxis=dict(gridcolor="#141e30", linecolor="#1e3050", tickcolor="#1e3050",
-                   tickfont=dict(size=10, color="#5a7ab5"), zeroline=False),
-        yaxis=dict(gridcolor="#141e30", linecolor="#1e3050", tickcolor="#1e3050",
-                   tickfont=dict(size=10, color="#5a7ab5"), zeroline=False),
-        colorway=["#FF9933","#138808","#4f8ef7","#a78bfa","#f7a83e","#e05c8b","#34d399"],
-    )
-    if title:
-        base["title"] = dict(text=title, font=dict(size=12, color="#7c8db5"))
-    if height:
-        base["height"] = height
-    if extra:
-        base.update(extra)
-    return base
-
-C = {
-    "saffron":"#FF9933","green":"#138808","blue":"#4f8ef7","navy":"#000080",
-    "purple":"#a78bfa","amber":"#f7a83e","pink":"#e05c8b","teal":"#34d399","red":"#f87171",
-    "cat":{
-        "Electronics":"#4f8ef7","Furniture":"#f7a83e",
-        "Office Supplies":"#138808","Clothing":"#FF9933","Home & Kitchen":"#a78bfa",
-    },
-    "region":{"North":"#FF9933","South":"#138808","East":"#4f8ef7","West":"#a78bfa","Central":"#f7a83e"},
-    "seg":{"Consumer":"#4f8ef7","Corporate":"#FF9933","Small Business":"#138808","Government":"#a78bfa"},
-    "ship":{"Standard Delivery":"#4f8ef7","Express Delivery":"#FF9933",
-            "Same Day Delivery":"#f87171","Economy Delivery":"#138808"},
+# ── Live order feed (ring buffer – last 200 synthetic orders) ────────────────
+LIVE_ORDERS   = deque(maxlen=200)
+LIVE_LOCK     = threading.Lock()
+LIVE_METRICS  = {
+    "total_sales":   float(BASE_DF["Sales"].sum()),
+    "total_profit":  float(BASE_DF["Profit"].sum()),
+    "total_orders":  int(len(BASE_DF)),
+    "total_qty":     int(BASE_DF["Quantity"].sum()),
+    "last_sale":     0.0,
+    "last_profit":   0.0,
+    "ticker":        [],   # last 60 sale ticks for sparkline
+    "profit_ticker": [],
 }
 
-# ─── LOAD DATA ───────────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600)   # refresh cache every hour for "live" feel
-def load_data(file=None):
-    if file is not None:
-        df = pd.read_csv(file)
-    else:
-        candidates = [
-            "IndiaSuperstore.csv",
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), "IndiaSuperstore.csv"),
-            os.path.join(os.getcwd(), "IndiaSuperstore.csv"),
-        ]
-        df = None
-        for p in candidates:
-            if os.path.exists(p):
-                df = pd.read_csv(p)
-                break
-        if df is None:
-            return None
-    df.columns   = df.columns.str.strip()
-    df["Sales"]      = pd.to_numeric(df["Sales"],    errors="coerce")
-    df["Profit"]     = pd.to_numeric(df["Profit"],   errors="coerce")
-    df["Quantity"]   = pd.to_numeric(df["Quantity"], errors="coerce")
-    df["Discount"]   = pd.to_numeric(df["Discount"], errors="coerce")
-    df["Order Date"] = pd.to_datetime(df["Order Date"], errors="coerce")
-    # ── Derived time columns ──────────────────────────────────────────────────
-    df["Year"]       = df["Order Date"].dt.year
-    df["Month"]      = df["Order Date"].dt.month
-    df["MonthName"]  = df["Order Date"].dt.strftime("%b")
-    df["Quarter"]    = "Q" + df["Order Date"].dt.quarter.astype(str)
-    df["YearMonth"]  = df["Order Date"].dt.to_period("M").astype(str)
-    df["Week"]       = df["Order Date"].dt.isocalendar().week.astype(int)
-    df["YearWeek"]   = df["Order Date"].dt.strftime("%Y-W%V")
-    df["DayOfWeek"]  = df["Order Date"].dt.day_name()
-    return df
+PRODUCTS   = BASE_DF["Product Name"].unique().tolist()
+CATEGORIES = BASE_DF["Category"].unique().tolist()
+SUBCATS    = BASE_DF["Sub-Category"].unique().tolist()
+SEGMENTS   = BASE_DF["Segment"].unique().tolist()
+REGIONS    = BASE_DF["Region"].unique().tolist()
+CITIES     = BASE_DF["City"].unique().tolist()
 
-df = load_data()
+ORDER_COUNTER = {"n": int(BASE_DF["Order ID"].str.extract(r"(\d+)")[0].max()) + 1}
 
-if df is None:
-    st.markdown("""
-    <div style='text-align:center;padding:80px 20px'>
-      <div style='font-size:52px;margin-bottom:16px'>📂</div>
-      <div style='font-size:22px;font-weight:600;color:#e8ecf5;margin-bottom:8px'>Upload IndiaSuperstore.csv</div>
-      <div style='font-size:14px;color:#5a7ab5'>Upload the dataset file below to begin.</div>
-    </div>""", unsafe_allow_html=True)
-    up = st.file_uploader("Upload IndiaSuperstore.csv", type=["csv"])
-    if up:
-        df = load_data(file=up)
-        st.rerun()
-    else:
-        st.stop()
+def make_order():
+    cat   = random.choice(CATEGORIES)
+    sub   = random.choice(BASE_DF[BASE_DF["Category"]==cat]["Sub-Category"].unique().tolist())
+    prod  = random.choice(BASE_DF[BASE_DF["Sub-Category"]==sub]["Product Name"].unique().tolist())
+    qty   = random.randint(1, 15)
+    price = round(random.uniform(200, 15000), 2)
+    disc  = round(random.choice([0, 0, 0, 0.1, 0.2, 0.3, 0.4, 0.5]), 2)
+    sales = round(price * qty * (1 - disc), 2)
+    margin= random.uniform(-0.2, 0.45)
+    profit= round(sales * margin, 2)
+    region= random.choice(REGIONS)
+    city  = random.choice(CITIES)
+    seg   = random.choice(SEGMENTS)
+    oid   = f"IND-{ORDER_COUNTER['n']:05d}"
+    ORDER_COUNTER["n"] += 1
+    now   = datetime.datetime.now()
+    return {
+        "order_id":    oid,
+        "timestamp":   now.isoformat(),
+        "time_str":    now.strftime("%H:%M:%S"),
+        "category":    cat,
+        "sub_category":sub,
+        "product":     prod[:45] + ("…" if len(prod) > 45 else ""),
+        "quantity":    qty,
+        "sales":       sales,
+        "profit":      profit,
+        "discount":    disc,
+        "region":      region,
+        "city":        city,
+        "segment":     seg,
+        "margin_pct":  round(margin * 100, 1),
+    }
 
-# ─── LIVE HEADER ─────────────────────────────────────────────────────────────
-latest_date  = df["Order Date"].max()
-earliest_date = df["Order Date"].min()
-days_since   = (TODAY - latest_date).days
+def order_generator():
+    """Background thread — emits 1 new order every 2-4 seconds."""
+    while True:
+        order = make_order()
+        with LIVE_LOCK:
+            LIVE_ORDERS.appendleft(order)
+            LIVE_METRICS["total_sales"]  += order["sales"]
+            LIVE_METRICS["total_profit"] += order["profit"]
+            LIVE_METRICS["total_orders"] += 1
+            LIVE_METRICS["total_qty"]    += order["quantity"]
+            LIVE_METRICS["last_sale"]     = order["sales"]
+            LIVE_METRICS["last_profit"]   = order["profit"]
+            ticks = LIVE_METRICS["ticker"]
+            ticks.append(round(LIVE_METRICS["total_sales"] / 1e6, 4))
+            if len(ticks) > 60: ticks.pop(0)
+            pt = LIVE_METRICS["profit_ticker"]
+            pt.append(round(LIVE_METRICS["total_profit"] / 1e6, 4))
+            if len(pt) > 60: pt.pop(0)
+        time.sleep(random.uniform(1.5, 3.5))
 
-st.markdown(f"""
-<div class="dash-header">
-  <div class="dash-title">
-    🇮🇳 India Retail Analytics Dashboard
-    <span class="live-badge"><span class="live-dot"></span>LIVE</span>
+threading.Thread(target=order_generator, daemon=True).start()
+
+# ── Pre-aggregate historical data for charts ─────────────────────────────────
+def build_aggregates():
+    df = BASE_DF.copy()
+    df["Month"] = df["Order Date"].dt.to_period("M").astype(str)
+    df["Year"]  = df["Order Date"].dt.year.astype(str)
+    df["Week"]  = df["Order Date"].dt.to_period("W").astype(str)
+
+    monthly = (df.groupby("Month")
+                 .agg(Sales=("Sales","sum"), Profit=("Profit","sum"), Orders=("Order ID","count"))
+                 .reset_index()
+                 .tail(24))
+
+    by_cat  = df.groupby("Category").agg(Sales=("Sales","sum"), Profit=("Profit","sum")).reset_index()
+    by_sub  = df.groupby("Sub-Category").agg(Sales=("Sales","sum"), Profit=("Profit","sum")).reset_index().nlargest(10,"Sales")
+    by_reg  = df.groupby("Region").agg(Sales=("Sales","sum"), Profit=("Profit","sum"), Orders=("Order ID","count")).reset_index()
+    by_seg  = df.groupby("Segment").agg(Sales=("Sales","sum"), Profit=("Profit","sum")).reset_index()
+    by_city = df.groupby("City").agg(Sales=("Sales","sum")).reset_index().nlargest(10,"Sales")
+    by_ship = df.groupby("Ship Mode").agg(Orders=("Order ID","count")).reset_index()
+
+    daily   = (df.groupby(df["Order Date"].dt.date)
+                 .agg(Sales=("Sales","sum"), Profit=("Profit","sum"))
+                 .reset_index()
+                 .tail(90))
+    daily.columns = ["Date","Sales","Profit"]
+    daily["Date"] = daily["Date"].astype(str)
+
+    # YoY
+    yoy = df.groupby("Year").agg(Sales=("Sales","sum"), Profit=("Profit","sum"), Orders=("Order ID","count")).reset_index()
+
+    return dict(
+        monthly=monthly.to_dict("records"),
+        by_cat =by_cat.to_dict("records"),
+        by_sub =by_sub.to_dict("records"),
+        by_reg =by_reg.to_dict("records"),
+        by_seg =by_seg.to_dict("records"),
+        by_city=by_city.to_dict("records"),
+        by_ship=by_ship.to_dict("records"),
+        daily  =daily.to_dict("records"),
+        yoy    =yoy.to_dict("records"),
+    )
+
+AGG = build_aggregates()
+
+# ── RAG helpers ──────────────────────────────────────────────────────────────
+CONTEXT_SUMMARY = f"""
+India Superstore Business Data Summary (RAG Context):
+- Date Range: {BASE_DF['Order Date'].min().date()} to {BASE_DF['Order Date'].max().date()}
+- Total Historical Orders: {len(BASE_DF):,}
+- Total Historical Sales: ₹{BASE_DF['Sales'].sum()/1e6:.2f}M
+- Total Historical Profit: ₹{BASE_DF['Profit'].sum()/1e6:.2f}M
+- Overall Profit Margin: {BASE_DF['Profit'].sum()/BASE_DF['Sales'].sum()*100:.1f}%
+- Categories: {', '.join(BASE_DF['Category'].unique())}
+- Regions: {', '.join(BASE_DF['Region'].unique())}
+- Segments: {', '.join(BASE_DF['Segment'].unique())}
+- Top Category by Sales: {BASE_DF.groupby('Category')['Sales'].sum().idxmax()}
+- Top Region by Sales: {BASE_DF.groupby('Region')['Sales'].sum().idxmax()}
+- Most Profitable Segment: {BASE_DF.groupby('Segment')['Profit'].sum().idxmax()}
+- Best Sub-Category: {BASE_DF.groupby('Sub-Category')['Sales'].sum().idxmax()}
+- Avg Order Value: ₹{BASE_DF['Sales'].mean():.0f}
+- Avg Discount: {BASE_DF['Discount'].mean()*100:.1f}%
+- High Discount (>40%) hurts margin — {(BASE_DF['Discount']>0.4).sum()} orders at >40% discount
+- Furniture has the lowest margin among categories.
+"""
+
+# ── Flask app ────────────────────────────────────────────────────────────────
+app = Flask(__name__)
+
+HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>India Superstore — Live BI Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --bg:#0a0e1a;--surface:#111827;--card:#151f2e;--border:#1e2d45;
+  --accent:#00d4ff;--green:#00ff88;--red:#ff4757;--yellow:#ffd700;
+  --purple:#a855f7;--orange:#f97316;--text:#e2e8f0;--muted:#64748b;
+  --font:'Inter',system-ui,sans-serif;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;}
+
+/* ── Header ── */
+header{background:linear-gradient(135deg,#0d1b2a,#1a2744);
+  border-bottom:1px solid var(--border);padding:12px 24px;
+  display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--purple));
+  border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.logo h1{font-size:18px;font-weight:700;letter-spacing:.5px;}
+.logo span{font-size:11px;color:var(--muted);display:block;}
+.live-badge{display:flex;align-items:center;gap:8px;background:rgba(0,255,136,.1);
+  border:1px solid rgba(0,255,136,.3);border-radius:20px;padding:6px 14px;font-size:12px;color:var(--green);}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.8);}}
+.header-right{display:flex;align-items:center;gap:16px;}
+#clock{font-size:13px;color:var(--muted);font-family:monospace;}
+
+/* ── Layout ── */
+main{padding:20px 24px;max-width:1800px;margin:0 auto;}
+.section-title{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:1.2px;
+  text-transform:uppercase;margin:24px 0 12px;padding-left:4px;border-left:3px solid var(--accent);}
+
+/* ── KPI Ticker Bar ── */
+.ticker-bar{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px 20px;margin-bottom:16px;overflow:hidden;position:relative;}
+.ticker-scroll{display:flex;gap:32px;animation:tickerscroll 30s linear infinite;width:max-content;}
+@keyframes tickerscroll{0%{transform:translateX(0);}100%{transform:translateX(-50%);}}
+.ticker-item{display:flex;align-items:center;gap:8px;white-space:nowrap;font-size:13px;}
+.ticker-label{color:var(--muted);}
+.ticker-val{font-weight:700;font-family:monospace;}
+.up{color:var(--green);}
+.dn{color:var(--red);}
+
+/* ── KPI Cards ── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px;}
+.kpi-card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:16px 20px;position:relative;overflow:hidden;transition:border-color .3s;}
+.kpi-card:hover{border-color:var(--accent);}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--accent),var(--purple));}
+.kpi-label{font-size:11px;color:var(--muted);font-weight:600;letter-spacing:.8px;text-transform:uppercase;}
+.kpi-val{font-size:26px;font-weight:800;font-family:monospace;margin:6px 0 2px;
+  background:linear-gradient(135deg,#fff,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.kpi-sub{font-size:11px;display:flex;align-items:center;gap:4px;}
+.kpi-change{font-size:20px;position:absolute;right:16px;top:16px;opacity:.15;}
+.flash-green{animation:flashg .6s;}
+.flash-red{animation:flashr .6s;}
+@keyframes flashg{0%,100%{background:transparent;}50%{background:rgba(0,255,136,.12);}}
+@keyframes flashr{0%,100%{background:transparent;}50%{background:rgba(255,71,87,.12);}}
+
+/* ── Sparkline row ── */
+.spark-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;}
+.spark-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 18px;}
+.spark-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.spark-title{font-size:12px;color:var(--muted);}
+.spark-cur{font-size:18px;font-weight:700;font-family:monospace;}
+
+/* ── Chart grid ── */
+.chart-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.chart-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;position:relative;}
+.chart-card h3{font-size:13px;font-weight:600;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.chart-card h3 .dot{width:8px;height:8px;border-radius:50%;}
+canvas{max-height:220px;}
+
+/* ── Live Order Feed ── */
+.order-feed{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;}
+.order-feed h3{font-size:13px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.order-table{width:100%;border-collapse:collapse;font-size:12px;}
+.order-table th{color:var(--muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--border);
+  font-weight:600;font-size:11px;letter-spacing:.6px;text-transform:uppercase;}
+.order-table td{padding:7px 10px;border-bottom:1px solid rgba(30,45,69,.5);font-family:monospace;}
+.order-table tr:first-child td{background:rgba(0,212,255,.04);}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;}
+.badge-green{background:rgba(0,255,136,.15);color:var(--green);}
+.badge-red{background:rgba(255,71,87,.15);color:var(--red);}
+.badge-blue{background:rgba(0,212,255,.15);color:var(--accent);}
+
+/* ── RAG Chat ── */
+.rag-section{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:20px;margin-bottom:24px;}
+.rag-section h3{font-size:13px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.chat-window{height:240px;overflow-y:auto;background:var(--surface);border-radius:8px;
+  padding:12px;margin-bottom:12px;border:1px solid var(--border);}
+.msg{margin-bottom:12px;display:flex;flex-direction:column;gap:2px;}
+.msg-user{align-items:flex-end;}
+.msg-bubble{max-width:85%;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.5;}
+.msg-user .msg-bubble{background:linear-gradient(135deg,#1e3a5f,#1a2d4a);color:var(--accent);}
+.msg-ai .msg-bubble{background:rgba(30,45,69,.6);color:var(--text);border:1px solid var(--border);}
+.msg-time{font-size:10px;color:var(--muted);}
+.rag-input{display:flex;gap:10px;}
+.rag-input input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:10px 14px;color:var(--text);font-size:13px;outline:none;}
+.rag-input input:focus{border-color:var(--accent);}
+.rag-input button{background:linear-gradient(135deg,var(--accent),var(--purple));border:none;
+  border-radius:8px;padding:10px 20px;color:#fff;font-weight:600;cursor:pointer;font-size:13px;}
+.suggestions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.sug-btn{background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.2);border-radius:20px;
+  padding:4px 12px;font-size:11px;color:var(--accent);cursor:pointer;}
+.sug-btn:hover{background:rgba(0,212,255,.18);}
+.thinking{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;padding:10px 14px;}
+.dot-anim span{animation:dotbounce 1.2s infinite;}
+.dot-anim span:nth-child(2){animation-delay:.2s;}
+.dot-anim span:nth-child(3){animation-delay:.4s;}
+@keyframes dotbounce{0%,100%{opacity:.3;}50%{opacity:1;}}
+
+/* ── Footer ── */
+footer{text-align:center;padding:20px;color:var(--muted);font-size:11px;border-top:1px solid var(--border);}
+
+@media(max-width:900px){
+  .chart-grid-2,.chart-grid-3,.spark-row{grid-template-columns:1fr;}
+  .kpi-grid{grid-template-columns:repeat(2,1fr);}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🛍</div>
+    <div>
+      <h1>India Superstore</h1>
+      <span>Live Business Intelligence Dashboard</span>
+    </div>
   </div>
-  <div class="dash-subtitle">
-    State-wise Sales Intelligence &nbsp;•&nbsp; 26 States &nbsp;•&nbsp; 156 Cities &nbsp;•&nbsp;
-    Data: {earliest_date.strftime('%d %b %Y')} → <b style="color:#2ec27e">{latest_date.strftime('%d %b %Y')}</b>
-    &nbsp;•&nbsp; Updated: {DATA_THRU}
+  <div class="header-right">
+    <div id="clock">--:--:--</div>
+    <div class="live-badge"><div class="pulse"></div> LIVE FEED ACTIVE</div>
   </div>
-</div>""", unsafe_allow_html=True)
+</header>
 
-# ─── FILTER BAR ──────────────────────────────────────────────────────────────
-st.markdown('<div class="filter-label">🔽 &nbsp;Dashboard Filters</div>', unsafe_allow_html=True)
+<main>
 
-col_r, col_s, col_st, col_cat, col_seg, col_ship, col_yr, col_btn = st.columns([1,1,1.2,1.2,1,1,0.8,0.7])
-
-with col_r:
-    sel_region = st.multiselect("Region", sorted(df["Region"].unique()), default=sorted(df["Region"].unique()), key="region")
-with col_s:
-    state_opts = sorted(df[df["Region"].isin(sel_region)]["State"].unique())
-    sel_state  = st.multiselect("State", state_opts, default=state_opts, key="state")
-with col_st:
-    city_opts  = sorted(df[df["State"].isin(sel_state)]["City"].unique())
-    sel_city   = st.multiselect("City", city_opts, default=city_opts, key="city")
-with col_cat:
-    sel_cat    = st.multiselect("Category", sorted(df["Category"].unique()), default=sorted(df["Category"].unique()), key="cat")
-with col_seg:
-    sel_seg    = st.multiselect("Segment", sorted(df["Segment"].unique()), default=sorted(df["Segment"].unique()), key="seg")
-with col_ship:
-    sel_ship   = st.multiselect("Ship Mode", sorted(df["Ship Mode"].unique()), default=sorted(df["Ship Mode"].unique()), key="ship")
-with col_yr:
-    all_years  = sorted(df["Year"].unique().tolist())
-    sel_yr     = st.multiselect("Year", all_years, default=all_years, key="yr")
-with col_btn:
-    st.markdown("<div style='height:22px'></div>", unsafe_allow_html=True)
-    if st.button("↺ Reset", use_container_width=True):
-        st.session_state.clear(); st.rerun()
-
-st.markdown("---")
-
-# ─── FILTER DATA ─────────────────────────────────────────────────────────────
-dff = df[
-    df["Region"].isin(sel_region) &
-    df["State"].isin(sel_state)   &
-    df["City"].isin(sel_city)     &
-    df["Category"].isin(sel_cat)  &
-    df["Segment"].isin(sel_seg)   &
-    df["Ship Mode"].isin(sel_ship)&
-    df["Year"].isin(sel_yr)
-]
-
-if dff.empty:
-    st.warning("No data matches your filters. Please adjust selections.")
-    st.stop()
-
-# ─── YTD PANEL (current year only) ───────────────────────────────────────────
-ytd = dff[dff["Year"] == CURRENT_YEAR]
-prev_yr = dff[dff["Year"] == CURRENT_YEAR - 1]
-
-if not ytd.empty:
-    ytd_sales   = ytd["Sales"].sum()
-    ytd_profit  = ytd["Profit"].sum()
-    ytd_orders  = len(ytd)
-    ytd_qty     = ytd["Quantity"].sum()
-
-    # Compare same period last year (Jan 1 → today's month last year)
-    prev_same = prev_yr[prev_yr["Month"] <= CURRENT_MON]
-    prev_sales = prev_same["Sales"].sum()
-    growth = ((ytd_sales - prev_sales) / prev_sales * 100) if prev_sales else 0
-    arrow  = "▲" if growth >= 0 else "▼"
-    g_col  = "#2ec27e" if growth >= 0 else "#f87171"
-
-    st.markdown(f"""
-    <div class="ytd-card">
-      <div class="ytd-title">
-        📅 &nbsp;{CURRENT_YEAR} Year-to-Date &nbsp;(Jan – {TODAY.strftime('%b %Y')})
-        &nbsp;&nbsp;
-        <span style="font-size:12px;color:{g_col}">{arrow} {abs(growth):.1f}% vs same period {CURRENT_YEAR-1}</span>
-      </div>
-      <div class="ytd-grid">
-        <div class="ytd-item"><div class="ytd-val">₹{ytd_sales/1e5:.1f}L</div><div class="ytd-lbl">YTD Revenue</div></div>
-        <div class="ytd-item"><div class="ytd-val">₹{ytd_profit/1e5:.1f}L</div><div class="ytd-lbl">YTD Profit</div></div>
-        <div class="ytd-item"><div class="ytd-val">{ytd_orders:,}</div><div class="ytd-lbl">YTD Orders</div></div>
-        <div class="ytd-item"><div class="ytd-val">{ytd_qty:,}</div><div class="ytd-lbl">YTD Units</div></div>
-      </div>
-    </div>""", unsafe_allow_html=True)
-
-# ─── KPI CARDS (all-time filtered) ───────────────────────────────────────────
-tot_sales  = dff["Sales"].sum()
-tot_profit = dff["Profit"].sum()
-tot_orders = len(dff)
-tot_qty    = dff["Quantity"].sum()
-avg_margin = (tot_profit / tot_sales * 100) if tot_sales else 0
-avg_disc   = dff["Discount"].mean() * 100
-aov        = tot_sales / max(tot_orders, 1)
-
-def fmt_cr(v): return f"₹{v/1e7:.2f} Cr" if v >= 1e7 else f"₹{v/1e5:.1f}L"
-
-st.markdown(f"""
-<div class="kpi-row">
-  <div class="kpi saffron">
-    <div class="kpi-icon">💰</div>
-    <div class="kpi-label">Total Revenue</div>
-    <div class="kpi-value">{fmt_cr(tot_sales)}</div>
-    <div class="kpi-sub pos">▲ {tot_orders:,} orders</div>
-  </div>
-  <div class="kpi green">
-    <div class="kpi-icon">📈</div>
-    <div class="kpi-label">Net Profit</div>
-    <div class="kpi-value">{fmt_cr(tot_profit)}</div>
-    <div class="kpi-sub {'pos' if tot_profit>0 else 'neg'}">{'▲' if tot_profit>0 else '▼'} Margin {avg_margin:.1f}%</div>
-  </div>
-  <div class="kpi blue">
-    <div class="kpi-icon">📦</div>
-    <div class="kpi-label">Units Sold</div>
-    <div class="kpi-value">{tot_qty:,}</div>
-    <div class="kpi-sub pos">▲ Avg {tot_qty/max(tot_orders,1):.1f}/order</div>
-  </div>
-  <div class="kpi purple">
-    <div class="kpi-icon">🏷️</div>
-    <div class="kpi-label">Avg Order Value</div>
-    <div class="kpi-value">₹{aov:,.0f}</div>
-    <div class="kpi-sub">Avg disc {avg_disc:.1f}%</div>
-  </div>
-  <div class="kpi white">
-    <div class="kpi-icon">🏙️</div>
-    <div class="kpi-label">Active Cities</div>
-    <div class="kpi-value">{dff['City'].nunique()}</div>
-    <div class="kpi-sub">{dff['State'].nunique()} states • {dff['Year'].nunique()} yrs</div>
+<!-- Ticker -->
+<div class="ticker-bar" style="margin-top:12px;">
+  <div class="ticker-scroll" id="tickerScroll">
+    <!-- duplicated for seamless loop -->
   </div>
 </div>
-""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 1 — LIVE TREND: Monthly + Last 12 Months Rolling
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">📅 &nbsp;Revenue Trend & Seasonality</div>', unsafe_allow_html=True)
-tr1, tr2 = st.columns([1.6, 1])
+<!-- KPI Cards -->
+<div class="section-title">📊 Key Performance Indicators</div>
+<div class="kpi-grid">
+  <div class="kpi-card" id="kpiSales">
+    <div class="kpi-change">💰</div>
+    <div class="kpi-label">Total Revenue</div>
+    <div class="kpi-val" id="valSales">—</div>
+    <div class="kpi-sub"><span class="up" id="lastSale">—</span></div>
+  </div>
+  <div class="kpi-card" id="kpiProfit">
+    <div class="kpi-change">📈</div>
+    <div class="kpi-label">Total Profit</div>
+    <div class="kpi-val" id="valProfit">—</div>
+    <div class="kpi-sub"><span id="lastProfit">—</span></div>
+  </div>
+  <div class="kpi-card" id="kpiOrders">
+    <div class="kpi-change">📦</div>
+    <div class="kpi-label">Total Orders</div>
+    <div class="kpi-val" id="valOrders">—</div>
+    <div class="kpi-sub"><span class="up">↑ live updates</span></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-change">🎯</div>
+    <div class="kpi-label">Profit Margin</div>
+    <div class="kpi-val" id="valMargin">—</div>
+    <div class="kpi-sub"><span class="up">Net overall</span></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-change">🛒</div>
+    <div class="kpi-label">Avg Order Value</div>
+    <div class="kpi-val" id="valAOV">—</div>
+    <div class="kpi-sub"><span class="muted">per transaction</span></div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-change">📮</div>
+    <div class="kpi-label">Total Units</div>
+    <div class="kpi-val" id="valQty">—</div>
+    <div class="kpi-sub"><span class="up">items sold</span></div>
+  </div>
+</div>
 
-with tr1:
-    trend = dff.groupby("YearMonth").agg(Sales=("Sales","sum"), Profit=("Profit","sum")).reset_index().sort_values("YearMonth")
-    fig_tr = go.Figure()
-    fig_tr.add_trace(go.Scatter(
-        x=trend["YearMonth"], y=trend["Sales"], name="Revenue",
-        line=dict(color=C["saffron"], width=2.5),
-        fill="tozeroy", fillcolor="rgba(255,153,51,0.08)",
-        mode="lines+markers", marker=dict(size=4, color=C["saffron"])
-    ))
-    fig_tr.add_trace(go.Scatter(
-        x=trend["YearMonth"], y=trend["Profit"], name="Profit",
-        line=dict(color=C["green"], width=2),
-        mode="lines+markers", marker=dict(size=4, color=C["green"])
-    ))
-    # vertical line for current month
-    curr_ym = TODAY.strftime("%Y-%m")
-    if curr_ym in trend["YearMonth"].values:
-        fig_tr.add_vline(x=curr_ym, line_color="#4f8ef7", line_dash="dot", line_width=1.5,
-                         annotation_text="Today", annotation_font_color="#4f8ef7", annotation_font_size=10)
-    fig_tr.update_layout(**PL("Monthly Revenue & Profit Trend (2021 → Present)", height=290,
-        extra={"legend":dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                             font=dict(size=10,color="#7c8db5"), bgcolor="rgba(0,0,0,0)")}))
-    fig_tr.update_xaxes(tickangle=-45, nticks=30)
-    fig_tr.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_tr, use_container_width=True)
+<!-- Sparklines -->
+<div class="spark-row">
+  <div class="spark-card">
+    <div class="spark-header">
+      <span class="spark-title">Revenue Pulse (₹M) — last 60 ticks</span>
+      <span class="spark-cur up" id="sparkSalesCur">—</span>
+    </div>
+    <canvas id="sparkSales" height="60"></canvas>
+  </div>
+  <div class="spark-card">
+    <div class="spark-header">
+      <span class="spark-title">Profit Pulse (₹M) — last 60 ticks</span>
+      <span class="spark-cur" id="sparkProfCur">—</span>
+    </div>
+    <canvas id="sparkProfit" height="60"></canvas>
+  </div>
+</div>
 
-with tr2:
-    # Last 12 months rolling
-    cutoff_12m = TODAY - timedelta(days=365)
-    last12 = dff[dff["Order Date"] >= cutoff_12m].groupby("YearMonth").agg(Sales=("Sales","sum")).reset_index().sort_values("YearMonth")
-    fig_12 = go.Figure(go.Bar(
-        x=last12["YearMonth"], y=last12["Sales"],
-        marker_color=C["blue"], marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in last12["Sales"]],
-        textposition="outside", textfont=dict(size=9, color="#c8ccd8"),
-    ))
-    fig_12.update_layout(**PL("Last 12 Months Rolling Revenue", height=290))
-    fig_12.update_xaxes(tickangle=-45)
-    fig_12.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_12, use_container_width=True)
+<!-- RAG Chat -->
+<div class="section-title">🤖 AI Business Analyst (RAG)</div>
+<div class="rag-section">
+  <h3><span class="dot" style="background:var(--purple)"></span>Ask anything about your business data</h3>
+  <div class="suggestions">
+    <span class="sug-btn" onclick="askSug(this)">Which category drives most revenue?</span>
+    <span class="sug-btn" onclick="askSug(this)">What's the profit margin trend?</span>
+    <span class="sug-btn" onclick="askSug(this)">Which region is underperforming?</span>
+    <span class="sug-btn" onclick="askSug(this)">Top growth opportunities?</span>
+    <span class="sug-btn" onclick="askSug(this)">Impact of discounts on profit?</span>
+    <span class="sug-btn" onclick="askSug(this)">Best performing segment?</span>
+  </div>
+  <div class="chat-window" id="chatWindow">
+    <div class="msg msg-ai">
+      <div class="msg-bubble">👋 Hi! I'm your AI Business Analyst. I have full context of your India Superstore data — 16,000+ orders, ₹493M+ in revenue. Ask me anything about trends, performance, or strategy!</div>
+      <span class="msg-time">AI Analyst • ready</span>
+    </div>
+  </div>
+  <div class="rag-input">
+    <input id="ragInput" placeholder="e.g. Which sub-category has the best margin?" onkeydown="if(event.key==='Enter')sendRag()"/>
+    <button onclick="sendRag()">Ask AI →</button>
+  </div>
+</div>
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 — YoY Comparison (every year including current partial)
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">📆 &nbsp;Year-over-Year Performance</div>', unsafe_allow_html=True)
-y1, y2, y3 = st.columns(3)
+<!-- Charts Row 1 -->
+<div class="section-title">📅 Revenue & Profit Trends</div>
+<div class="chart-grid-2">
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--accent)"></span>Monthly Revenue & Profit (₹)</h3>
+    <canvas id="chartMonthly"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--green)"></span>Daily Sales — Last 90 Days</h3>
+    <canvas id="chartDaily"></canvas>
+  </div>
+</div>
 
-with y1:
-    yoy_cat = dff.groupby(["Year","Category"])["Sales"].sum().reset_index()
-    fig_yoy = px.bar(yoy_cat, x="Year", y="Sales", color="Category",
-                     barmode="group", color_discrete_map=C["cat"], text_auto=False)
-    fig_yoy.update_traces(marker_line_width=0)
-    fig_yoy.update_layout(**PL("YoY Revenue by Category", height=280,
-        extra={"legend":dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                             font=dict(size=9,color="#7c8db5"), bgcolor="rgba(0,0,0,0)")}))
-    fig_yoy.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_yoy, use_container_width=True)
+<!-- Charts Row 2 -->
+<div class="section-title">🗂 Category & Segment Analysis</div>
+<div class="chart-grid-3">
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--yellow)"></span>Sales by Category</h3>
+    <canvas id="chartCat"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--purple)"></span>Sales by Segment</h3>
+    <canvas id="chartSeg"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--orange)"></span>Ship Mode Distribution</h3>
+    <canvas id="chartShip"></canvas>
+  </div>
+</div>
 
-with y2:
-    yoy_sum = dff.groupby("Year").agg(Sales=("Sales","sum"), Profit=("Profit","sum"), Orders=("Sales","count")).reset_index()
-    yoy_sum["Margin"] = (yoy_sum["Profit"] / yoy_sum["Sales"] * 100).round(1)
-    fig_yoy2 = go.Figure()
-    fig_yoy2.add_trace(go.Bar(name="Revenue", x=yoy_sum["Year"], y=yoy_sum["Sales"], marker_color=C["saffron"], marker_line_width=0))
-    fig_yoy2.add_trace(go.Bar(name="Profit",  x=yoy_sum["Year"], y=yoy_sum["Profit"], marker_color=C["green"],  marker_line_width=0))
-    # annotate current year as partial
-    if CURRENT_YEAR in yoy_sum["Year"].values:
-        fig_yoy2.add_annotation(x=CURRENT_YEAR, y=yoy_sum[yoy_sum["Year"]==CURRENT_YEAR]["Sales"].values[0],
-            text=f"YTD {TODAY.strftime('%b')}", showarrow=False,
-            font=dict(size=9, color="#4f8ef7"), yshift=14)
-    fig_yoy2.update_layout(**PL("Annual Revenue vs Profit", height=280,
-        extra={"barmode":"group",
-               "legend":dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                             font=dict(size=10,color="#7c8db5"), bgcolor="rgba(0,0,0,0)")}))
-    fig_yoy2.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_yoy2, use_container_width=True)
+<!-- Charts Row 3 -->
+<div class="section-title">🗺 Regional & Sub-Category Performance</div>
+<div class="chart-grid-2">
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--red)"></span>Sales & Profit by Region</h3>
+    <canvas id="chartReg"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--green)"></span>Top 10 Sub-Categories by Sales</h3>
+    <canvas id="chartSub"></canvas>
+  </div>
+</div>
 
-with y3:
-    # Growth % YoY
-    yoy_g = yoy_sum.copy().sort_values("Year")
-    yoy_g["Growth%"] = yoy_g["Sales"].pct_change() * 100
-    yoy_g = yoy_g.dropna()
-    fig_g = go.Figure(go.Bar(
-        x=yoy_g["Year"], y=yoy_g["Growth%"],
-        marker_color=[C["green"] if v >= 0 else C["red"] for v in yoy_g["Growth%"]],
-        marker_line_width=0,
-        text=[f"{v:.1f}%" for v in yoy_g["Growth%"]], textposition="outside",
-        textfont=dict(size=11, color="#c8ccd8"),
-    ))
-    fig_g.add_hline(y=0, line_color=C["pink"], line_dash="dot", line_width=1)
-    fig_g.update_layout(**PL("Revenue Growth % YoY", height=280))
-    fig_g.update_yaxes(ticksuffix="%")
-    st.plotly_chart(fig_g, use_container_width=True)
+<!-- YoY -->
+<div class="section-title">📆 Year-over-Year Growth</div>
+<div class="chart-grid-2">
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--accent)"></span>Annual Revenue</h3>
+    <canvas id="chartYoY"></canvas>
+  </div>
+  <div class="chart-card">
+    <h3><span class="dot" style="background:var(--purple)"></span>Annual Profit</h3>
+    <canvas id="chartYoYProfit"></canvas>
+  </div>
+</div>
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 — Seasonality (month pattern across all years)
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">🗓️ &nbsp;Seasonality & Monthly Patterns</div>', unsafe_allow_html=True)
-sea1, sea2 = st.columns(2)
+<!-- Top Cities -->
+<div class="section-title">🏙 Top 10 Cities by Revenue</div>
+<div class="chart-card" style="margin-bottom:16px;">
+  <canvas id="chartCity" style="max-height:180px;"></canvas>
+</div>
 
-with sea1:
-    month_order = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-    seas = dff.groupby("MonthName")["Sales"].sum().reset_index()
-    seas["sort"] = seas["MonthName"].apply(lambda x: month_order.index(x) if x in month_order else 99)
-    seas = seas.sort_values("sort")
-    # highlight current month
-    bar_colors = []
-    for m in seas["MonthName"]:
-        if m == TODAY.strftime("%b"):
-            bar_colors.append("#4f8ef7")   # current month = blue
-        elif m in ["Oct","Nov","Dec"]:
-            bar_colors.append(C["saffron"]) # festive = orange
-        else:
-            bar_colors.append("#2a3a5c")
-    fig_seas = go.Figure(go.Bar(
-        x=seas["MonthName"], y=seas["Sales"],
-        marker_color=bar_colors, marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in seas["Sales"]], textposition="outside",
-        textfont=dict(size=9, color="#c8ccd8"),
-    ))
-    fig_seas.update_layout(**PL(f"Monthly Seasonality — 🔵 Current Month, 🟠 Festive Season", height=280))
-    fig_seas.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_seas, use_container_width=True)
+<!-- Live Order Feed -->
+<div class="section-title">⚡ Live Order Feed</div>
+<div class="order-feed">
+  <h3><span class="dot" style="background:var(--green)"></span>Real-Time Incoming Orders</h3>
+  <div style="overflow-x:auto;">
+    <table class="order-table">
+      <thead>
+        <tr>
+          <th>Time</th><th>Order ID</th><th>Category</th><th>Product</th>
+          <th>Qty</th><th>Sales ₹</th><th>Profit ₹</th><th>Margin</th>
+          <th>Region</th><th>Segment</th>
+        </tr>
+      </thead>
+      <tbody id="orderBody"></tbody>
+    </table>
+  </div>
+</div>
 
-with sea2:
-    dow = dff.groupby("DayOfWeek")["Sales"].sum().reset_index()
-    day_order_map = {"Monday":0,"Tuesday":1,"Wednesday":2,"Thursday":3,"Friday":4,"Saturday":5,"Sunday":6}
-    dow["sort"] = dow["DayOfWeek"].map(day_order_map)
-    dow = dow.sort_values("sort")
-    fig_dow = go.Figure(go.Bar(
-        x=dow["DayOfWeek"], y=dow["Sales"],
-        marker_color=[C["saffron"] if d in ["Saturday","Sunday"] else "#2a3a5c" for d in dow["DayOfWeek"]],
-        marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in dow["Sales"]], textposition="outside",
-        textfont=dict(size=9, color="#c8ccd8"),
-    ))
-    fig_dow.update_layout(**PL("Sales by Day of Week — 🟠 Weekend", height=280))
-    fig_dow.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_dow, use_container_width=True)
+</main>
+<footer>India Superstore Live BI Dashboard • Real-time data simulation • Powered by AI Analytics</footer>
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — Category Performance
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">🛍️ &nbsp;Category Performance</div>', unsafe_allow_html=True)
-ca1, ca2, ca3 = st.columns(3)
+<script>
+// ── Chart.js defaults ────────────────────────────────────────────────────────
+Chart.defaults.color = '#64748b';
+Chart.defaults.borderColor = '#1e2d45';
+Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+Chart.defaults.font.size = 11;
 
-with ca1:
-    cat_s = dff.groupby("Category")["Sales"].sum().reset_index().sort_values("Sales",ascending=False)
-    fig_cs = go.Figure(go.Bar(
-        x=cat_s["Category"], y=cat_s["Sales"],
-        marker_color=[C["cat"][c] for c in cat_s["Category"]], marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in cat_s["Sales"]], textposition="outside",
-        textfont=dict(size=10, color="#c8ccd8"),
-    ))
-    fig_cs.update_layout(**PL("Revenue by Category", height=260))
-    fig_cs.update_xaxes(tickangle=-20)
-    fig_cs.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_cs, use_container_width=True)
+const COLORS = ['#00d4ff','#00ff88','#a855f7','#f97316','#ffd700','#ff4757','#06b6d4','#34d399'];
 
-with ca2:
-    cat_p = dff.groupby("Category")["Profit"].sum().reset_index().sort_values("Profit",ascending=False)
-    fig_cp = go.Figure(go.Bar(
-        x=cat_p["Category"], y=cat_p["Profit"],
-        marker_color=[C["green"] if v>=0 else C["red"] for v in cat_p["Profit"]], marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in cat_p["Profit"]], textposition="outside",
-        textfont=dict(size=10, color="#c8ccd8"),
-    ))
-    fig_cp.update_layout(**PL("Profit by Category", height=260))
-    fig_cp.update_xaxes(tickangle=-20)
-    fig_cp.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_cp, use_container_width=True)
+function fmt(n,dec=0){
+  if(n>=1e7) return '₹'+(n/1e7).toFixed(1)+'Cr';
+  if(n>=1e5) return '₹'+(n/1e5).toFixed(1)+'L';
+  return '₹'+n.toLocaleString('en-IN',{maximumFractionDigits:dec});
+}
+function fmtK(n){if(n>=1000)return (n/1000).toFixed(1)+'K';return n.toFixed(0);}
 
-with ca3:
-    cat_qty = dff.groupby("Category")["Quantity"].sum().reset_index()
-    fig_pie = go.Figure(go.Pie(
-        labels=cat_qty["Category"], values=cat_qty["Quantity"], hole=0.55,
-        marker_colors=[C["cat"][c] for c in cat_qty["Category"]],
-        textinfo="label+percent", textfont=dict(size=10, color="#c8ccd8"),
-        insidetextorientation="radial",
-    ))
-    fig_pie.update_layout(**PL("Units Share by Category", height=260, extra={"showlegend":False}))
-    st.plotly_chart(fig_pie, use_container_width=True)
+// ── Clock ────────────────────────────────────────────────────────────────────
+setInterval(()=>{
+  document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-IN');
+},1000);
 
-# Sub-categories
-st.markdown('<div class="sec">📊 &nbsp;Sub-Category Deep Dive</div>', unsafe_allow_html=True)
-sb1, sb2 = st.columns(2)
+// ── Ticker ────────────────────────────────────────────────────────────────────
+function buildTicker(m){
+  const items=[
+    `💰 Revenue: ${fmt(m.total_sales)}`,
+    `📈 Profit: ${fmt(m.total_profit)}`,
+    `📦 Orders: ${m.total_orders.toLocaleString()}`,
+    `🛒 Last Sale: ${fmt(m.last_sale)}`,
+    `💵 Last Profit: ${m.last_profit>=0?'▲':'▼'} ${fmt(Math.abs(m.last_profit))}`,
+    `🎯 Margin: ${(m.total_profit/m.total_sales*100).toFixed(1)}%`,
+    `📮 Units: ${fmtK(m.total_qty)}`,
+    `⚡ AOV: ${fmt(m.total_sales/m.total_orders)}`,
+  ];
+  const doubled=[...items,...items];
+  const ts=document.getElementById('tickerScroll');
+  ts.innerHTML=doubled.map(t=>`<span class="ticker-item"><span class="ticker-val up">${t}</span></span>`).join('');
+}
 
-with sb1:
-    sub_s = dff.groupby(["Category","Sub-Category"])["Sales"].sum().reset_index().sort_values("Sales")
-    fig_ss = go.Figure(go.Bar(
-        x=sub_s["Sales"], y=sub_s["Sub-Category"], orientation="h",
-        marker_color=[C["cat"][c] for c in sub_s["Category"]], marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in sub_s["Sales"]], textposition="outside",
-        textfont=dict(size=9, color="#c8ccd8"),
-    ))
-    fig_ss.update_layout(**PL("Revenue by Sub-Category", height=480, margin=dict(l=8,r=70,t=36,b=8)))
-    fig_ss.update_xaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_ss, use_container_width=True)
+// ── Sparklines ────────────────────────────────────────────────────────────────
+let sparkSalesChart, sparkProfChart;
+function initSparks(){
+  const cfg=(color,label)=>({
+    type:'line',
+    data:{labels:[],datasets:[{data:[],borderColor:color,borderWidth:1.5,
+      fill:true,backgroundColor:color+'22',pointRadius:0,tension:.4}]},
+    options:{animation:false,plugins:{legend:{display:false}},
+      scales:{x:{display:false},y:{display:false}},responsive:true,maintainAspectRatio:false}
+  });
+  sparkSalesChart=new Chart(document.getElementById('sparkSales'),cfg('#00d4ff','Revenue'));
+  sparkProfChart =new Chart(document.getElementById('sparkProfit'),cfg('#00ff88','Profit'));
+}
+function updateSparks(m){
+  const ticks=m.ticker, pt=m.profit_ticker;
+  const labels=ticks.map((_,i)=>i);
+  sparkSalesChart.data.labels=labels;
+  sparkSalesChart.data.datasets[0].data=ticks;
+  sparkSalesChart.update('none');
+  sparkProfChart.data.labels=labels;
+  sparkProfChart.data.datasets[0].data=pt;
+  sparkProfChart.data.datasets[0].borderColor=pt[pt.length-1]>=0?'#00ff88':'#ff4757';
+  sparkProfChart.data.datasets[0].backgroundColor=(pt[pt.length-1]>=0?'#00ff88':'#ff4757')+'22';
+  sparkProfChart.update('none');
+  document.getElementById('sparkSalesCur').textContent='₹'+(ticks[ticks.length-1]||0).toFixed(2)+'M';
+  const pv=pt[pt.length-1]||0;
+  const pc=document.getElementById('sparkProfCur');
+  pc.textContent='₹'+pv.toFixed(2)+'M';
+  pc.className='spark-cur '+(pv>=0?'up':'dn');
+}
 
-with sb2:
-    sub_p = dff.groupby("Sub-Category")["Profit"].sum().reset_index().sort_values("Profit")
-    fig_sp = go.Figure(go.Bar(
-        x=sub_p["Profit"], y=sub_p["Sub-Category"], orientation="h",
-        marker_color=[C["green"] if v>=0 else C["red"] for v in sub_p["Profit"]], marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in sub_p["Profit"]], textposition="outside",
-        textfont=dict(size=9, color="#c8ccd8"),
-    ))
-    fig_sp.update_layout(**PL("Profit/Loss by Sub-Category", height=480, margin=dict(l=8,r=70,t=36,b=8)))
-    fig_sp.update_xaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_sp, use_container_width=True)
+// ── KPI update ────────────────────────────────────────────────────────────────
+let prevSales=0;
+function updateKPIs(m){
+  const s=m.total_sales, p=m.total_profit;
+  document.getElementById('valSales').textContent=fmt(s);
+  document.getElementById('valProfit').textContent=fmt(p);
+  document.getElementById('valOrders').textContent=m.total_orders.toLocaleString();
+  document.getElementById('valMargin').textContent=(p/s*100).toFixed(1)+'%';
+  document.getElementById('valAOV').textContent=fmt(s/m.total_orders);
+  document.getElementById('valQty').textContent=fmtK(m.total_qty);
+  const ls=document.getElementById('lastSale');
+  ls.textContent='Last: '+fmt(m.last_sale);
+  ls.className=m.last_sale>0?'up':'dn';
+  const lp=document.getElementById('lastProfit');
+  lp.textContent=(m.last_profit>=0?'▲ ':'▼ ')+fmt(Math.abs(m.last_profit));
+  lp.className=m.last_profit>=0?'up':'dn';
+  // flash card
+  const card=document.getElementById('kpiSales');
+  const changed=s!==prevSales;
+  if(changed){card.classList.add('flash-green');setTimeout(()=>card.classList.remove('flash-green'),600);}
+  prevSales=s;
+}
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — State-wise Geography
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">🗺️ &nbsp;State-wise & Regional Analysis</div>', unsafe_allow_html=True)
-g1, g2 = st.columns([1.4, 0.6])
+// ── Order feed ────────────────────────────────────────────────────────────────
+let knownOrders=new Set();
+function renderOrders(orders){
+  const tbody=document.getElementById('orderBody');
+  let html='';
+  orders.slice(0,12).forEach(o=>{
+    const isNew=!knownOrders.has(o.order_id);
+    const pc=o.profit>=0?'badge-green':'badge-red';
+    const mc=o.margin_pct>=0?'up':'dn';
+    html+=`<tr style="${isNew?'animation:flashg .8s;':''}">
+      <td>${o.time_str}</td>
+      <td><span class="badge badge-blue">${o.order_id}</span></td>
+      <td>${o.category}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.product}</td>
+      <td>${o.quantity}</td>
+      <td class="up">${fmt(o.sales)}</td>
+      <td><span class="badge ${pc}">${o.profit>=0?'+':''}${fmt(o.profit)}</span></td>
+      <td class="${mc}">${o.margin_pct}%</td>
+      <td>${o.region}</td>
+      <td>${o.segment}</td>
+    </tr>`;
+    knownOrders.add(o.order_id);
+  });
+  tbody.innerHTML=html;
+}
 
-with g1:
-    top_n = st.slider("Top N States", 5, 26, 15, key="top_states")
-    state_d = (
-        dff.groupby(["State","Region"])
-        .agg(Sales=("Sales","sum"), Profit=("Profit","sum"), Orders=("Sales","count"))
-        .reset_index().sort_values("Sales",ascending=False).head(top_n).sort_values("Sales")
+// ── Static charts ─────────────────────────────────────────────────────────────
+let chartsInited=false;
+function initCharts(agg){
+  // Monthly
+  const mLabels=agg.monthly.map(r=>r.Month);
+  new Chart('chartMonthly',{type:'bar',data:{
+    labels:mLabels,
+    datasets:[
+      {label:'Sales',data:agg.monthly.map(r=>r.Sales),backgroundColor:'#00d4ff44',borderColor:'#00d4ff',borderWidth:1.5,yAxisID:'y'},
+      {label:'Profit',data:agg.monthly.map(r=>r.Profit),type:'line',borderColor:'#00ff88',borderWidth:2,pointRadius:2,tension:.4,yAxisID:'y1',fill:false}
+    ]
+  },options:{responsive:true,maintainAspectRatio:true,
+    scales:{y:{ticks:{callback:v=>fmt(v)}},y1:{position:'right',grid:{drawOnChartArea:false},ticks:{callback:v=>fmt(v)}}},
+    plugins:{legend:{position:'top',labels:{boxWidth:10}}}}});
+
+  // Daily
+  new Chart('chartDaily',{type:'line',data:{
+    labels:agg.daily.map(r=>r.Date.slice(5)),
+    datasets:[
+      {label:'Sales',data:agg.daily.map(r=>r.Sales),borderColor:'#a855f7',fill:true,backgroundColor:'#a855f722',pointRadius:0,tension:.4},
+      {label:'Profit',data:agg.daily.map(r=>r.Profit),borderColor:'#00ff88',fill:false,pointRadius:0,tension:.4}
+    ]
+  },options:{responsive:true,maintainAspectRatio:true,
+    scales:{x:{ticks:{maxTicksLimit:10}},y:{ticks:{callback:v=>fmt(v)}}},
+    plugins:{legend:{position:'top',labels:{boxWidth:10}}}}});
+
+  // Category donut
+  new Chart('chartCat',{type:'doughnut',data:{
+    labels:agg.by_cat.map(r=>r.Category),
+    datasets:[{data:agg.by_cat.map(r=>r.Sales),backgroundColor:COLORS,borderWidth:2,borderColor:'#151f2e'}]
+  },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:8}}}}});
+
+  // Segment donut
+  new Chart('chartSeg',{type:'doughnut',data:{
+    labels:agg.by_seg.map(r=>r.Segment),
+    datasets:[{data:agg.by_seg.map(r=>r.Sales),backgroundColor:COLORS.slice(2),borderWidth:2,borderColor:'#151f2e'}]
+  },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:8}}}}});
+
+  // Ship mode pie
+  new Chart('chartShip',{type:'pie',data:{
+    labels:agg.by_ship.map(r=>r['Ship Mode']),
+    datasets:[{data:agg.by_ship.map(r=>r.Orders),backgroundColor:COLORS.slice(1),borderWidth:2,borderColor:'#151f2e'}]
+  },options:{responsive:true,plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:8}}}}});
+
+  // Region grouped bar
+  new Chart('chartReg',{type:'bar',data:{
+    labels:agg.by_reg.map(r=>r.Region),
+    datasets:[
+      {label:'Sales',data:agg.by_reg.map(r=>r.Sales),backgroundColor:'#00d4ff88'},
+      {label:'Profit',data:agg.by_reg.map(r=>r.Profit),backgroundColor:'#00ff8888'}
+    ]
+  },options:{responsive:true,scales:{y:{ticks:{callback:v=>fmt(v)}}},
+    plugins:{legend:{position:'top',labels:{boxWidth:10}}}}});
+
+  // Sub-cat horizontal bar
+  new Chart('chartSub',{type:'bar',data:{
+    labels:agg.by_sub.map(r=>r['Sub-Category']),
+    datasets:[
+      {label:'Sales',data:agg.by_sub.map(r=>r.Sales),backgroundColor:'#f9731688'},
+      {label:'Profit',data:agg.by_sub.map(r=>r.Profit),backgroundColor:'#a855f788'}
+    ]
+  },options:{indexAxis:'y',responsive:true,scales:{x:{ticks:{callback:v=>fmt(v)}}},
+    plugins:{legend:{position:'top',labels:{boxWidth:10}}}}});
+
+  // YoY Revenue
+  new Chart('chartYoY',{type:'bar',data:{
+    labels:agg.yoy.map(r=>r.Year),
+    datasets:[{label:'Annual Revenue',data:agg.yoy.map(r=>r.Sales),
+      backgroundColor:COLORS,borderRadius:6}]
+  },options:{responsive:true,scales:{y:{ticks:{callback:v=>fmt(v)}}},
+    plugins:{legend:{display:false}}}});
+
+  // YoY Profit
+  new Chart('chartYoYProfit',{type:'bar',data:{
+    labels:agg.yoy.map(r=>r.Year),
+    datasets:[{label:'Annual Profit',data:agg.yoy.map(r=>r.Profit),
+      backgroundColor:agg.yoy.map(r=>r.Profit>=0?'#00ff8888':'#ff475788'),borderRadius:6}]
+  },options:{responsive:true,scales:{y:{ticks:{callback:v=>fmt(v)}}},
+    plugins:{legend:{display:false}}}});
+
+  // Top Cities
+  new Chart('chartCity',{type:'bar',data:{
+    labels:agg.by_city.map(r=>r.City),
+    datasets:[{label:'Sales',data:agg.by_city.map(r=>r.Sales),backgroundColor:'#00d4ff55',borderColor:'#00d4ff',borderWidth:1.5}]
+  },options:{responsive:true,maintainAspectRatio:true,
+    scales:{y:{ticks:{callback:v=>fmt(v)}}},plugins:{legend:{display:false}}}});
+
+  chartsInited=true;
+}
+
+// ── Poll live data ────────────────────────────────────────────────────────────
+async function pollLive(){
+  try{
+    const r=await fetch('/api/live');
+    const d=await r.json();
+    updateKPIs(d.metrics);
+    updateSparks(d.metrics);
+    buildTicker(d.metrics);
+    renderOrders(d.orders);
+    if(!chartsInited && d.agg) initCharts(d.agg);
+  }catch(e){console.warn('poll err',e);}
+}
+
+// ── RAG chat ──────────────────────────────────────────────────────────────────
+function askSug(el){document.getElementById('ragInput').value=el.textContent;sendRag();}
+async function sendRag(){
+  const inp=document.getElementById('ragInput');
+  const q=inp.value.trim();
+  if(!q)return;
+  inp.value='';
+  const cw=document.getElementById('chatWindow');
+  const t=new Date().toLocaleTimeString('en-IN');
+  cw.innerHTML+=`<div class="msg msg-user"><div class="msg-bubble">${q}</div><span class="msg-time">You • ${t}</span></div>`;
+  cw.innerHTML+=`<div class="msg msg-ai" id="thinking"><div class="thinking">🤖 Analysing<span class="dot-anim"><span>.</span><span>.</span><span>.</span></span></div></div>`;
+  cw.scrollTop=cw.scrollHeight;
+  try{
+    const r=await fetch('/api/rag',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q})});
+    const d=await r.json();
+    document.getElementById('thinking').outerHTML=
+      `<div class="msg msg-ai"><div class="msg-bubble">${d.answer.replace(/\n/g,'<br>')}</div><span class="msg-time">AI Analyst • ${new Date().toLocaleTimeString('en-IN')}</span></div>`;
+    cw.scrollTop=cw.scrollHeight;
+  }catch(e){
+    document.getElementById('thinking').outerHTML=`<div class="msg msg-ai"><div class="msg-bubble">⚠️ Error contacting AI. Please try again.</div></div>`;
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+initSparks();
+pollLive();
+setInterval(pollLive, 2500);
+</script>
+</body>
+</html>
+"""
+
+@app.route("/")
+def index():
+    return render_template_string(HTML)
+
+@app.route("/api/live")
+def api_live():
+    with LIVE_LOCK:
+        orders = list(LIVE_ORDERS)
+        metrics = dict(LIVE_METRICS)
+    return jsonify({"metrics": metrics, "orders": orders, "agg": AGG})
+
+@app.route("/api/rag", methods=["POST"])
+def api_rag():
+    """RAG endpoint — uses Anthropic Claude API with business context injected."""
+    import urllib.request
+    question = request.json.get("q", "")
+    if not question:
+        return jsonify({"answer": "Please ask a question."})
+
+    with LIVE_LOCK:
+        live_ctx = (
+            f"\nCURRENT LIVE METRICS (as of now):\n"
+            f"- Total Revenue: ₹{LIVE_METRICS['total_sales']/1e6:.2f}M\n"
+            f"- Total Profit: ₹{LIVE_METRICS['total_profit']/1e6:.2f}M\n"
+            f"- Total Orders: {LIVE_METRICS['total_orders']:,}\n"
+            f"- Live Margin: {LIVE_METRICS['total_profit']/LIVE_METRICS['total_sales']*100:.1f}%\n"
+        )
+
+    prompt = f"""{CONTEXT_SUMMARY}{live_ctx}
+
+User question: {question}
+
+Answer concisely (3-5 sentences max) with specific numbers from the data. Be direct and actionable. Use ₹ for currency."""
+
+    payload = json.dumps({
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 400,
+        "messages": [{"role": "user", "content": prompt}]
+    }).encode()
+
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages",
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+        },
+        method="POST"
     )
-    fig_st = go.Figure()
-    fig_st.add_trace(go.Bar(name="Revenue", x=state_d["Sales"],  y=state_d["State"],
-        orientation="h", marker_color=[C["region"][r] for r in state_d["Region"]], marker_line_width=0))
-    fig_st.add_trace(go.Bar(name="Profit",  x=state_d["Profit"], y=state_d["State"],
-        orientation="h", marker_color=C["green"], marker_line_width=0, opacity=0.75))
-    fig_st.update_layout(**PL(f"Top {top_n} States — Revenue vs Profit",
-        height=top_n*30+80, margin=dict(l=8,r=10,t=36,b=8),
-        extra={"barmode":"overlay",
-               "legend":dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                             font=dict(size=10,color="#7c8db5"), bgcolor="rgba(0,0,0,0)")}))
-    fig_st.update_xaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_st, use_container_width=True)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read())
+            answer = data["content"][0]["text"]
+    except Exception as e:
+        answer = f"AI analysis unavailable: {str(e)[:80]}"
+    return jsonify({"answer": answer})
 
-with g2:
-    reg = dff.groupby("Region")["Sales"].sum().reset_index()
-    fig_r = go.Figure(go.Pie(
-        labels=reg["Region"], values=reg["Sales"], hole=0.55,
-        marker_colors=[C["region"][r] for r in reg["Region"]],
-        textinfo="label+percent", textfont=dict(size=11, color="#c8ccd8"),
-        insidetextorientation="radial",
-    ))
-    fig_r.update_layout(**PL("Revenue by Region", height=300, extra={"showlegend":False}))
-    st.plotly_chart(fig_r, use_container_width=True)
-
-    state_profit_heat = dff.pivot_table(index="State", columns="Year", values="Profit", aggfunc="sum").fillna(0)
-    fig_sph = go.Figure(go.Heatmap(
-        z=state_profit_heat.values,
-        x=[str(c) for c in state_profit_heat.columns.tolist()],
-        y=state_profit_heat.index.tolist(),
-        colorscale=[[0,"#f87171"],[0.5,"#0a1628"],[1,"#138808"]],
-        text=[[f"₹{v/1e5:.0f}L" for v in row] for row in state_profit_heat.values],
-        texttemplate="%{text}", textfont=dict(size=7, color="#e8ecf5"),
-        showscale=True, colorbar=dict(tickfont=dict(color="#5a7ab5",size=9),thickness=10),
-    ))
-    fig_sph.update_layout(**PL("State Profit by Year", height=320, margin=dict(l=8,r=60,t=36,b=8)))
-    st.plotly_chart(fig_sph, use_container_width=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 6 — Heatmaps, Margin, Discount Scatter
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">🔥 &nbsp;Cross-Dimensional Analysis</div>', unsafe_allow_html=True)
-h1, h2 = st.columns(2)
-
-with h1:
-    heat = dff.pivot_table(index="Category", columns="Region", values="Sales", aggfunc="sum").fillna(0)
-    fig_hm = go.Figure(go.Heatmap(
-        z=heat.values, x=heat.columns.tolist(), y=heat.index.tolist(),
-        colorscale=[[0,"#0a1628"],[0.4,"#0f3460"],[0.7,"#FF9933"],[1,"#138808"]],
-        text=[[f"₹{v/1e5:.0f}L" for v in row] for row in heat.values],
-        texttemplate="%{text}", textfont=dict(size=11, color="#e8ecf5"),
-        showscale=True, colorbar=dict(tickfont=dict(color="#5a7ab5",size=9),thickness=10),
-    ))
-    fig_hm.update_layout(**PL("Revenue Heatmap: Category × Region", height=260, margin=dict(l=8,r=60,t=36,b=8)))
-    st.plotly_chart(fig_hm, use_container_width=True)
-
-with h2:
-    seg_cat = dff.pivot_table(index="Segment", columns="Category", values="Sales", aggfunc="sum").fillna(0)
-    fig_hm2 = go.Figure(go.Heatmap(
-        z=seg_cat.values, x=seg_cat.columns.tolist(), y=seg_cat.index.tolist(),
-        colorscale=[[0,"#0a1628"],[0.4,"#1a3a6e"],[0.7,"#4f8ef7"],[1,"#a78bfa"]],
-        text=[[f"₹{v/1e5:.0f}L" for v in row] for row in seg_cat.values],
-        texttemplate="%{text}", textfont=dict(size=11, color="#e8ecf5"),
-        showscale=True, colorbar=dict(tickfont=dict(color="#5a7ab5",size=9),thickness=10),
-    ))
-    fig_hm2.update_layout(**PL("Revenue Heatmap: Segment × Category", height=260, margin=dict(l=8,r=60,t=36,b=8)))
-    st.plotly_chart(fig_hm2, use_container_width=True)
-
-m1, m2 = st.columns(2)
-with m1:
-    margin_sub = (
-        dff.groupby("Sub-Category")
-        .apply(lambda x: (x["Profit"].sum()/x["Sales"].sum())*100 if x["Sales"].sum() else 0)
-        .reset_index(name="Margin").sort_values("Margin",ascending=False)
-    )
-    fig_mg = go.Figure(go.Bar(
-        x=margin_sub["Sub-Category"], y=margin_sub["Margin"],
-        marker_color=[C["green"] if v>=0 else C["red"] for v in margin_sub["Margin"]],
-        marker_line_width=0,
-        text=[f"{v:.1f}%" for v in margin_sub["Margin"]], textposition="outside",
-        textfont=dict(size=9, color="#c8ccd8"),
-    ))
-    fig_mg.add_hline(y=0, line_color=C["pink"], line_dash="dot", line_width=1)
-    fig_mg.update_layout(**PL("Profit Margin % by Sub-Category", height=270))
-    fig_mg.update_xaxes(tickangle=-40)
-    fig_mg.update_yaxes(ticksuffix="%")
-    st.plotly_chart(fig_mg, use_container_width=True)
-
-with m2:
-    samp = dff.sample(min(3000,len(dff)), random_state=42)
-    fig_sc = go.Figure(go.Scatter(
-        x=samp["Discount"], y=samp["Profit"], mode="markers",
-        marker=dict(size=4, color=samp["Sales"],
-                    colorscale=[[0,"#0a1628"],[0.5,"#FF9933"],[1,"#138808"]],
-                    showscale=True,
-                    colorbar=dict(title=dict(text="Sales (₹)",font=dict(color="#5a7ab5",size=9)),
-                                  tickfont=dict(color="#5a7ab5",size=9),thickness=10,len=0.7),
-                    opacity=0.65, line=dict(width=0)),
-        hovertemplate="Discount: %{x:.0%}<br>Profit: ₹%{y:,.0f}<extra></extra>",
-    ))
-    fig_sc.add_hline(y=0, line_color=C["pink"], line_dash="dot", line_width=1.5)
-    fig_sc.update_layout(**PL("Discount vs Profit Impact", height=270))
-    fig_sc.update_xaxes(tickformat=".0%", title_text="Discount", title_font=dict(size=10,color="#5a7ab5"))
-    fig_sc.update_yaxes(tickprefix="₹", title_text="Profit",    title_font=dict(size=10,color="#5a7ab5"))
-    st.plotly_chart(fig_sc, use_container_width=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 7 — Segment & Ship Mode
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">👥 &nbsp;Segment & Shipping Analysis</div>', unsafe_allow_html=True)
-
-def donut(grp, col, cmap, title, height=220):
-    fig = go.Figure(go.Pie(
-        labels=grp[col], values=grp["Sales"], hole=0.55,
-        marker_colors=[cmap.get(v,"#888") for v in grp[col]],
-        textinfo="label+percent", textfont=dict(size=10,color="#c8ccd8"),
-        insidetextorientation="radial",
-    ))
-    fig.update_layout(**PL(title, height=height, extra={"showlegend":False}))
-    return fig
-
-d1, d2, d3, d4 = st.columns(4)
-qcolors = {"Q1":C["blue"],"Q2":C["saffron"],"Q3":C["purple"],"Q4":C["green"]}
-with d1:
-    st.plotly_chart(donut(dff.groupby("Segment")["Sales"].sum().reset_index(),  "Segment",  C["seg"],   "Sales by Segment"),   use_container_width=True)
-with d2:
-    st.plotly_chart(donut(dff.groupby("Ship Mode")["Sales"].sum().reset_index(),"Ship Mode",C["ship"],  "Sales by Ship Mode"), use_container_width=True)
-with d3:
-    st.plotly_chart(donut(dff.groupby("Quarter")["Sales"].sum().reset_index(),  "Quarter",  qcolors,    "Sales by Quarter"),   use_container_width=True)
-with d4:
-    seg_p = dff.groupby("Segment")["Profit"].sum().reset_index().sort_values("Profit",ascending=False)
-    fig_sp2 = go.Figure(go.Bar(
-        x=seg_p["Segment"], y=seg_p["Profit"],
-        marker_color=[C["seg"][s] for s in seg_p["Segment"]], marker_line_width=0,
-        text=[f"₹{v/1e5:.0f}L" for v in seg_p["Profit"]], textposition="outside",
-        textfont=dict(size=10, color="#c8ccd8"),
-    ))
-    fig_sp2.update_layout(**PL("Profit by Segment", height=220))
-    fig_sp2.update_yaxes(tickprefix="₹", tickformat=",.0f")
-    st.plotly_chart(fig_sp2, use_container_width=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 8 — City & Product Tables
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown('<div class="sec">🏙️ &nbsp;City & Product Intelligence</div>', unsafe_allow_html=True)
-tb1, tb2 = st.columns(2)
-
-with tb1:
-    city_df = (
-        dff.groupby(["City","State","Region"])
-        .agg(Revenue=("Sales","sum"), Profit=("Profit","sum"),
-             Orders=("Sales","count"), Qty=("Quantity","sum"))
-        .reset_index().sort_values("Revenue",ascending=False).head(20)
-    )
-    city_df["Margin%"] = (city_df["Profit"]/city_df["Revenue"]*100).round(1).map("{:.1f}%".format)
-    city_df["Revenue"] = city_df["Revenue"].map("₹{:,.0f}".format)
-    city_df["Profit"]  = city_df["Profit"].map("₹{:,.0f}".format)
-    st.markdown("**🏆 Top 20 Cities by Revenue**")
-    st.dataframe(city_df, use_container_width=True, hide_index=True, height=460)
-
-with tb2:
-    prod_df = (
-        dff.groupby(["Product Name","Category","Sub-Category"])
-        .agg(Revenue=("Sales","sum"), Profit=("Profit","sum"),
-             Orders=("Sales","count"), Qty=("Quantity","sum"))
-        .reset_index().sort_values("Revenue",ascending=False).head(20)
-    )
-    prod_df["Margin%"] = (prod_df["Profit"]/prod_df["Revenue"]*100).round(1).map("{:.1f}%".format)
-    prod_df["Revenue"] = prod_df["Revenue"].map("₹{:,.0f}".format)
-    prod_df["Profit"]  = prod_df["Profit"].map("₹{:,.0f}".format)
-    st.markdown("**🛒 Top 20 Products by Revenue**")
-    st.dataframe(prod_df, use_container_width=True, hide_index=True, height=460)
-
-# ─── FOOTER ──────────────────────────────────────────────────────────────────
-st.markdown("---")
-st.markdown(
-    f"<div style='text-align:center;color:#1e3050;font-size:12px;padding:8px 0'>"
-    f"🇮🇳 India Retail Analytics Dashboard &nbsp;•&nbsp; Data through {DATA_THRU} &nbsp;•&nbsp; "
-    f"Streamlit + Plotly &nbsp;•&nbsp; Refreshes hourly</div>",
-    unsafe_allow_html=True,
-)
+if __name__ == "__main__":
+    print("🚀 India Superstore Live Dashboard starting on http://localhost:5000")
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
