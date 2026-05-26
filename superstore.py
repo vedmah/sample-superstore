@@ -1,417 +1,342 @@
- 
+# India Retail Analytics Dashboard (Live Data Version)
+
+```python
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from faker import Faker
+from plotly.subplots import make_subplots
+import yfinance as yf
 from datetime import datetime, timedelta
-import random
-import time
 
-# ============================================================
+# -------------------------------------------------
 # PAGE CONFIG
-# ============================================================
-
+# -------------------------------------------------
 st.set_page_config(
-    page_title="India Live Retail Dashboard",
-    layout="wide",
+    page_title="Live Trading Analytics Dashboard",
     page_icon="📈",
+    layout="wide"
 )
 
-# ============================================================
+# -------------------------------------------------
 # CUSTOM CSS
-# ============================================================
-
+# -------------------------------------------------
 st.markdown("""
 <style>
-
 body {
-    background-color: #020617;
+    background-color: #020817;
 }
 
 .main {
-    background-color: #020617;
+    background-color: #020817;
     color: white;
 }
 
-[data-testid="stMetric"] {
-    background: linear-gradient(145deg,#0f172a,#111827);
-    border: 1px solid #1e293b;
-    padding: 15px;
+.metric-card {
+    background: linear-gradient(135deg,#0f172a,#111827);
+    padding: 20px;
     border-radius: 18px;
+    border: 1px solid #1e293b;
     box-shadow: 0px 0px 10px rgba(0,0,0,0.4);
 }
 
-h1,h2,h3,h4 {
-    color: white !important;
+.dashboard-title {
+    background: linear-gradient(90deg,#172554,#1e3a8a);
+    padding: 25px;
+    border-radius: 20px;
+    margin-bottom: 20px;
 }
 
-section[data-testid="stSidebar"] {
-    background-color: #0f172a;
+.small-text {
+    color: #94a3b8;
+    font-size: 14px;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
-# ============================================================
-# LIVE DATA GENERATOR
-# ============================================================
+# -------------------------------------------------
+# TITLE
+# -------------------------------------------------
+st.markdown("""
+<div class='dashboard-title'>
+    <h1>📈 IN Live Trading Analytics Dashboard</h1>
+    <p class='small-text'>Real-Time Market Analytics • NSE/BSE Stocks • Live Financial Dashboard</p>
+</div>
+""", unsafe_allow_html=True)
 
-fake = Faker()
-
-regions = ["North", "South", "East", "West", "Central"]
-
-states = [
-    "Maharashtra", "Delhi", "Karnataka", "Tamil Nadu",
-    "Gujarat", "Punjab", "Rajasthan", "Telangana",
-    "Kerala", "West Bengal"
-]
-
-cities = [
-    "Mumbai", "Pune", "Delhi", "Bengaluru", "Hyderabad",
-    "Chennai", "Ahmedabad", "Kolkata", "Jaipur", "Lucknow"
-]
-
-categories = [
-    "Electronics",
-    "Furniture",
-    "Clothing",
-    "Home & Kitchen",
-    "Office Supplies"
-]
-
-sub_categories = {
-    "Electronics": ["Laptops", "Mobiles", "Televisions", "Accessories"],
-    "Furniture": ["Chairs", "Tables", "Beds", "Sofas"],
-    "Clothing": ["Men Wear", "Women Wear", "Kids Wear", "Footwear"],
-    "Home & Kitchen": ["Cookware", "Decor", "Storage", "Appliances"],
-    "Office Supplies": ["Printers", "Paper", "Labels", "Binders"]
+# -------------------------------------------------
+# LIVE STOCK DATA
+# -------------------------------------------------
+STOCKS = {
+    "Reliance": "RELIANCE.NS",
+    "TCS": "TCS.NS",
+    "Infosys": "INFY.NS",
+    "HDFC Bank": "HDFCBANK.NS",
+    "ICICI Bank": "ICICIBANK.NS",
+    "Wipro": "WIPRO.NS",
+    "SBI": "SBIN.NS",
+    "Adani Ports": "ADANIPORTS.NS"
 }
 
-segments = ["Consumer", "Corporate", "Government", "Small Business"]
+# -------------------------------------------------
+# SIDEBAR FILTERS
+# -------------------------------------------------
+st.sidebar.header("📊 Dashboard Filters")
 
-ship_modes = [
-    "Express Delivery",
-    "Economy",
-    "Standard",
-    "Same Day"
-]
+selected_stock = st.sidebar.selectbox(
+    "Select Stock",
+    list(STOCKS.keys())
+)
 
-# ============================================================
-# GENERATE LIVE DATA
-# ============================================================
+selected_period = st.sidebar.selectbox(
+    "Select Time Period",
+    ["1d", "5d", "1mo", "3mo", "6mo", "1y"]
+)
 
-@st.cache_data(ttl=10)
-def generate_live_data(rows=5000):
+selected_interval = st.sidebar.selectbox(
+    "Select Interval",
+    ["1m", "5m", "15m", "30m", "1h", "1d"]
+)
 
-    data = []
+# -------------------------------------------------
+# FETCH LIVE DATA
+# -------------------------------------------------
+stock_symbol = STOCKS[selected_stock]
 
-    for _ in range(rows):
+@st.cache_data(ttl=60)
+def load_data(symbol, period, interval):
+    ticker = yf.Ticker(symbol)
+    df = ticker.history(period=period, interval=interval)
+    df.reset_index(inplace=True)
+    return df
 
-        category = random.choice(categories)
+try:
+    df = load_data(stock_symbol, selected_period, selected_interval)
 
-        revenue = random.randint(2000, 150000)
+    latest_close = df['Close'].iloc[-1]
+    previous_close = df['Close'].iloc[-2]
+    price_change = latest_close - previous_close
+    percentage_change = (price_change / previous_close) * 100
 
-        discount = random.choice([0, 5, 10, 15, 20, 30, 40])
+    highest_price = df['High'].max()
+    lowest_price = df['Low'].min()
+    total_volume = int(df['Volume'].sum())
 
-        profit = revenue * random.uniform(0.05, 0.35)
+    # -------------------------------------------------
+    # KPI CARDS
+    # -------------------------------------------------
+    col1, col2, col3, col4 = st.columns(4)
 
-        quantity = random.randint(1, 10)
+    with col1:
+        st.markdown("""
+        <div class='metric-card'>
+            <h4>💰 Current Price</h4>
+            <h2>₹{:.2f}</h2>
+        </div>
+        """.format(latest_close), unsafe_allow_html=True)
 
-        order_date = datetime.now() - timedelta(
-            days=random.randint(0, 365)
+    with col2:
+        st.markdown("""
+        <div class='metric-card'>
+            <h4>📈 Price Change</h4>
+            <h2>{:.2f}%</h2>
+        </div>
+        """.format(percentage_change), unsafe_allow_html=True)
+
+    with col3:
+        st.markdown("""
+        <div class='metric-card'>
+            <h4>🚀 Highest Price</h4>
+            <h2>₹{:.2f}</h2>
+        </div>
+        """.format(highest_price), unsafe_allow_html=True)
+
+    with col4:
+        st.markdown("""
+        <div class='metric-card'>
+            <h4>📦 Total Volume</h4>
+            <h2>{:,}</h2>
+        </div>
+        """.format(total_volume), unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # -------------------------------------------------
+    # PRICE TREND CHART
+    # -------------------------------------------------
+    st.subheader("📉 Live Stock Price Trend")
+
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=df.iloc[:, 0],
+        y=df['Close'],
+        mode='lines',
+        fill='tozeroy',
+        name='Close Price'
+    ))
+
+    fig.update_layout(
+        template='plotly_dark',
+        height=500,
+        paper_bgcolor='#020817',
+        plot_bgcolor='#020817'
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # -------------------------------------------------
+    # CANDLESTICK CHART
+    # -------------------------------------------------
+    st.subheader("🕯️ Candlestick Analysis")
+
+    candle = go.Figure(data=[go.Candlestick(
+        x=df.iloc[:, 0],
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close']
+    )])
+
+    candle.update_layout(
+        template='plotly_dark',
+        height=600,
+        paper_bgcolor='#020817',
+        plot_bgcolor='#020817'
+    )
+
+    st.plotly_chart(candle, use_container_width=True)
+
+    # -------------------------------------------------
+    # VOLUME ANALYSIS
+    # -------------------------------------------------
+    col5, col6 = st.columns(2)
+
+    with col5:
+        st.subheader("📊 Trading Volume")
+
+        volume_fig = px.bar(
+            df,
+            x=df.iloc[:, 0],
+            y='Volume',
+            template='plotly_dark'
         )
 
-        data.append({
+        volume_fig.update_layout(
+            paper_bgcolor='#020817',
+            plot_bgcolor='#020817',
+            height=450
+        )
 
-            "Region": random.choice(regions),
+        st.plotly_chart(volume_fig, use_container_width=True)
 
-            "State": random.choice(states),
+    # -------------------------------------------------
+    # MOVING AVERAGE
+    # -------------------------------------------------
+    with col6:
+        st.subheader("📈 Moving Average Analysis")
 
-            "City": random.choice(cities),
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA50'] = df['Close'].rolling(50).mean()
 
-            "Category": category,
+        ma_fig = go.Figure()
 
-            "Sub_Category": random.choice(sub_categories[category]),
+        ma_fig.add_trace(go.Scatter(
+            x=df.iloc[:, 0],
+            y=df['Close'],
+            mode='lines',
+            name='Close Price'
+        ))
 
-            "Segment": random.choice(segments),
+        ma_fig.add_trace(go.Scatter(
+            x=df.iloc[:, 0],
+            y=df['MA20'],
+            mode='lines',
+            name='MA20'
+        ))
 
-            "Ship_Mode": random.choice(ship_modes),
+        ma_fig.add_trace(go.Scatter(
+            x=df.iloc[:, 0],
+            y=df['MA50'],
+            mode='lines',
+            name='MA50'
+        ))
 
-            "Revenue": revenue,
+        ma_fig.update_layout(
+            template='plotly_dark',
+            height=450,
+            paper_bgcolor='#020817',
+            plot_bgcolor='#020817'
+        )
 
-            "Profit": profit,
+        st.plotly_chart(ma_fig, use_container_width=True)
 
-            "Quantity": quantity,
+    # -------------------------------------------------
+    # LIVE MARKET TABLE
+    # -------------------------------------------------
+    st.subheader("📋 Live Market Snapshot")
 
-            "Discount": discount,
+    market_data = []
 
-            "Order_Date": order_date
+    for name, symbol in STOCKS.items():
+        try:
+            temp = yf.Ticker(symbol).history(period='1d')
+            latest = temp['Close'].iloc[-1]
+            open_price = temp['Open'].iloc[-1]
+            change = latest - open_price
 
-        })
+            market_data.append({
+                'Stock': name,
+                'Price': round(latest, 2),
+                'Open': round(open_price, 2),
+                'Change': round(change, 2)
+            })
+        except:
+            pass
 
-    return pd.DataFrame(data)
+    market_df = pd.DataFrame(market_data)
 
-df = generate_live_data()
-
-# ============================================================
-# SIDEBAR FILTERS
-# ============================================================
-
-st.sidebar.title("📊 Dashboard Filters")
-
-selected_region = st.sidebar.multiselect(
-    "Region",
-    options=df["Region"].unique(),
-    default=df["Region"].unique()
-)
-
-selected_category = st.sidebar.multiselect(
-    "Category",
-    options=df["Category"].unique(),
-    default=df["Category"].unique()
-)
-
-selected_segment = st.sidebar.multiselect(
-    "Segment",
-    options=df["Segment"].unique(),
-    default=df["Segment"].unique()
-)
-
-# FILTER DATA
-
-filtered_df = df[
-    (df["Region"].isin(selected_region)) &
-    (df["Category"].isin(selected_category)) &
-    (df["Segment"].isin(selected_segment))
-]
-
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown("""
-# 🇮🇳 India Live Retail Analytics Dashboard
-### Real-Time Business Intelligence • Live Market Scenario • AI Business View
-""")
-
-st.markdown("---")
-
-# ============================================================
-# KPI SECTION
-# ============================================================
-
-total_revenue = filtered_df["Revenue"].sum()
-total_profit = filtered_df["Profit"].sum()
-units_sold = filtered_df["Quantity"].sum()
-avg_order = filtered_df["Revenue"].mean()
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric(
-        "💰 Total Revenue",
-        f"₹ {total_revenue:,.0f}",
-        "+12%"
+    st.dataframe(
+        market_df,
+        use_container_width=True,
+        height=400
     )
 
-with col2:
-    st.metric(
-        "📈 Net Profit",
-        f"₹ {total_profit:,.0f}",
-        "+8%"
-    )
+    # -------------------------------------------------
+    # AUTO REFRESH
+    # -------------------------------------------------
+    st.caption("🔄 Dashboard auto-refreshes every 60 seconds")
 
-with col3:
-    st.metric(
-        "📦 Units Sold",
-        f"{units_sold:,}",
-        "+15%"
-    )
+except Exception as e:
+    st.error(f"Error loading live data: {e}")
 
-with col4:
-    st.metric(
-        "🛒 Avg Order Value",
-        f"₹ {avg_order:,.0f}",
-        "+5%"
-    )
+```
 
-st.markdown("---")
+---
 
-# ============================================================
-# MONTHLY TREND
-# ============================================================
+# Requirements.txt
 
-trend = filtered_df.copy()
+```txt
 
-trend["Month"] = trend["Order_Date"].dt.strftime("%b")
+```
 
-monthly = trend.groupby("Month")[["Revenue", "Profit"]].sum().reset_index()
+---
 
-fig = go.Figure()
+# Run Dashboard
 
-fig.add_trace(go.Scatter(
-    x=monthly["Month"],
-    y=monthly["Revenue"],
-    mode='lines+markers',
-    name='Revenue'
-))
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-fig.add_trace(go.Scatter(
-    x=monthly["Month"],
-    y=monthly["Profit"],
-    mode='lines+markers',
-    name='Profit'
-))
+---
 
-fig.update_layout(
-    template="plotly_dark",
-    title="Monthly Revenue & Profit Trend",
-    height=450
-)
+# Deploy Live on Streamlit Cloud
 
-st.plotly_chart(fig, use_container_width=True)
+1. Upload code to GitHub
+2. Open Streamlit Cloud
+3. Connect GitHub Repository
+4. Deploy app.py
+5. Your live dashboard will be available online
 
-# ============================================================
-# CATEGORY ANALYSIS
-# ============================================================
-
-col1, col2 = st.columns(2)
-
-category_sales = filtered_df.groupby("Category")["Revenue"].sum().reset_index()
-
-with col1:
-
-    fig = px.bar(
-        category_sales,
-        x="Category",
-        y="Revenue",
-        color="Category",
-        title="Revenue by Category",
-        template="plotly_dark"
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-category_profit = filtered_df.groupby("Category")["Profit"].sum().reset_index()
-
-with col2:
-
-    fig = px.pie(
-        category_profit,
-        names="Category",
-        values="Profit",
-        hole=0.5,
-        title="Profit Share by Category",
-        template="plotly_dark"
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-# ============================================================
-# TOP STATES
-# ============================================================
-
-st.markdown("## 🏆 Top Performing States")
-
-top_states = (
-    filtered_df.groupby("State")["Revenue"]
-    .sum()
-    .sort_values(ascending=False)
-    .head(10)
-    .reset_index()
-)
-
-fig = px.bar(
-    top_states,
-    x="Revenue",
-    y="State",
-    orientation="h",
-    color="Revenue",
-    template="plotly_dark",
-    title="Top States by Revenue"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# ============================================================
-# HEATMAP
-# ============================================================
-
-st.markdown("## 🔥 Cross-Dimensional Analysis")
-
-heatmap_df = filtered_df.pivot_table(
-    index="Category",
-    columns="Region",
-    values="Revenue",
-    aggfunc="sum"
-)
-
-fig = px.imshow(
-    heatmap_df,
-    text_auto=True,
-    aspect="auto",
-    template="plotly_dark",
-    title="Revenue Heatmap: Category vs Region"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# ============================================================
-# DISCOUNT VS PROFIT
-# ============================================================
-
-st.markdown("## 📉 Discount vs Profit Impact")
-
-fig = px.scatter(
-    filtered_df,
-    x="Discount",
-    y="Profit",
-    size="Revenue",
-    color="Category",
-    hover_data=["Sub_Category"],
-    template="plotly_dark"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-# ============================================================
-# LIVE TRANSACTIONS TABLE
-# ============================================================
-
-st.markdown("## ⚡ Live Transactions Feed")
-
-live_table = filtered_df[[
-    "State",
-    "City",
-    "Category",
-    "Sub_Category",
-    "Revenue",
-    "Profit",
-    "Quantity"
-]].tail(20)
-
-st.dataframe(
-    live_table,
-    use_container_width=True,
-    height=400
-)
-
-# ============================================================
-# AUTO REFRESH
-# ============================================================
-
-st.markdown("---")
-
-st.success(
-    f"✅ Live Dashboard Running • Last Updated: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
-)
-
-time.sleep(2)
-
-st.rerun()
-
-# ============================================================
-# END
-# ============================================================
