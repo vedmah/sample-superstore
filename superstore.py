@@ -1,6 +1,6 @@
 # ============================================================
 # 🇮🇳 INDIA LIVE BUSINESS ANALYTICS DASHBOARD
-# Real-Time Professional Business Dashboard
+# Enterprise Professional Live Dashboard
 # Streamlit + Plotly + Faker
 # ============================================================
 
@@ -8,7 +8,7 @@
 # streamlit run app.py
 
 # INSTALL:
-# pip install streamlit pandas numpy plotly faker
+# pip install -r requirements.txt
 
 # ============================================================
 
@@ -19,8 +19,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from faker import Faker
 from datetime import datetime, timedelta
+from streamlit_autorefresh import st_autorefresh
 import random
-import time
 
 # ============================================================
 # PAGE CONFIG
@@ -29,12 +29,8 @@ import time
 st.set_page_config(
     page_title="India Live Retail Dashboard",
     layout="wide",
-    page_icon="📈",
+    page_icon="📈"
 )
-
-# ============================================================
-# CUSTOM CSS
-# ============================================================
 
 # ============================================================
 # LIGHT PROFESSIONAL CSS
@@ -43,21 +39,15 @@ st.set_page_config(
 st.markdown("""
 <style>
 
-/* MAIN APP */
-
 .stApp {
     background-color: #f4f7fb;
     color: #1e293b;
 }
 
-/* MAIN CONTAINER */
-
 .main .block-container {
-    padding-top: 2rem;
+    padding-top: 1.5rem;
     padding-bottom: 2rem;
 }
-
-/* HEADINGS */
 
 h1, h2, h3, h4, h5 {
     color: #0f172a !important;
@@ -65,133 +55,36 @@ h1, h2, h3, h4, h5 {
     font-weight: 700;
 }
 
-/* METRIC CARDS */
-
 [data-testid="stMetric"] {
     background: white;
     border: 1px solid #e2e8f0;
     padding: 22px;
     border-radius: 18px;
     box-shadow: 0 4px 14px rgba(0,0,0,0.06);
-    transition: 0.3s ease;
 }
-
-[data-testid="stMetric"]:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.10);
-}
-
-/* METRIC LABEL */
 
 [data-testid="stMetricLabel"] {
     color: #64748b !important;
-    font-size: 15px;
-    font-weight: 600;
 }
-
-/* METRIC VALUE */
 
 [data-testid="stMetricValue"] {
     color: #0f172a !important;
-    font-size: 34px;
-    font-weight: 700;
 }
-
-/* SIDEBAR */
 
 section[data-testid="stSidebar"] {
     background: white;
     border-right: 1px solid #e2e8f0;
 }
 
-/* SIDEBAR TEXT */
-
-section[data-testid="stSidebar"] * {
-    color: #1e293b !important;
-}
-
-/* FILTER DROPDOWN */
-
-.stMultiSelect div[data-baseweb="select"] {
-    background-color: white;
-    border-radius: 12px;
-    border: 1px solid #cbd5e1;
-}
-
-/* DATAFRAME */
-
-[data-testid="stDataFrame"] {
-    border-radius: 16px;
-    overflow: hidden;
-    border: 1px solid #e2e8f0;
-}
-
-/* BUTTONS */
-
-.stButton button {
-    background: linear-gradient(90deg,#2563eb,#3b82f6);
-    color: white;
-    border-radius: 10px;
-    border: none;
-    padding: 10px 22px;
-    font-weight: 600;
-}
-
-.stButton button:hover {
-    background: linear-gradient(90deg,#1d4ed8,#2563eb);
-    color: white;
-}
-
-/* SUCCESS BOX */
-
-.stAlert {
-    border-radius: 14px;
-}
-
-/* PLOTLY CHART AREA */
-
 .js-plotly-plot {
-    border-radius: 18px;
     background: white !important;
+    border-radius: 18px;
     padding: 10px;
     box-shadow: 0 4px 14px rgba(0,0,0,0.05);
 }
 
-/* DIVIDER */
-
-hr {
-    border-color: #cbd5e1;
-}
-
-/* SCROLLBAR */
-
-::-webkit-scrollbar {
-    width: 10px;
-}
-
-::-webkit-scrollbar-track {
-    background: #f1f5f9;
-}
-
-::-webkit-scrollbar-thumb {
-    background: #94a3b8;
-    border-radius: 20px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #64748b;
-}
-
 </style>
 """, unsafe_allow_html=True)
-
-# ============================================================
-# LIVE DATA GENERATOR
-# ============================================================
-
-fake = Faker()
-
-regions = ["North", "South", "East", "West", "Central"]
 
 # ============================================================
 # INDIA STATES & CITIES
@@ -229,7 +122,7 @@ india_locations = {
 
     "Gujarat": [
         "Ahmedabad", "Surat", "Vadodara",
-        "Rajkot", "Gandhinagar", "Bhavnagar"
+        "Rajkot", "Gandhinagar"
     ],
 
     "Haryana": [
@@ -237,18 +130,9 @@ india_locations = {
         "Ambala", "Karnal"
     ],
 
-    "Himachal Pradesh": [
-        "Shimla", "Manali", "Dharamshala"
-    ],
-
-    "Jharkhand": [
-        "Ranchi", "Jamshedpur", "Dhanbad",
-        "Bokaro"
-    ],
-
     "Karnataka": [
         "Bengaluru", "Mysuru", "Hubli",
-        "Mangalore", "Belgaum"
+        "Mangalore"
     ],
 
     "Kerala": [
@@ -258,28 +142,12 @@ india_locations = {
 
     "Madhya Pradesh": [
         "Bhopal", "Indore", "Gwalior",
-        "Jabalpur", "Ujjain"
+        "Jabalpur"
     ],
 
     "Maharashtra": [
         "Mumbai", "Pune", "Nagpur",
-        "Nashik", "Thane", "Aurangabad"
-    ],
-
-    "Manipur": [
-        "Imphal", "Thoubal"
-    ],
-
-    "Meghalaya": [
-        "Shillong", "Tura"
-    ],
-
-    "Mizoram": [
-        "Aizawl", "Lunglei"
-    ],
-
-    "Nagaland": [
-        "Kohima", "Dimapur"
+        "Nashik", "Thane"
     ],
 
     "Odisha": [
@@ -294,25 +162,17 @@ india_locations = {
 
     "Rajasthan": [
         "Jaipur", "Jodhpur",
-        "Udaipur", "Kota", "Ajmer"
-    ],
-
-    "Sikkim": [
-        "Gangtok", "Namchi"
+        "Udaipur", "Kota"
     ],
 
     "Tamil Nadu": [
         "Chennai", "Coimbatore",
-        "Madurai", "Salem", "Tiruppur"
+        "Madurai", "Salem"
     ],
 
     "Telangana": [
         "Hyderabad", "Warangal",
-        "Karimnagar", "Nizamabad"
-    ],
-
-    "Tripura": [
-        "Agartala", "Udaipur"
+        "Karimnagar"
     ],
 
     "Uttar Pradesh": [
@@ -320,39 +180,24 @@ india_locations = {
         "Noida", "Agra", "Varanasi"
     ],
 
-    "Uttarakhand": [
-        "Dehradun", "Haridwar",
-        "Roorkee", "Nainital"
-    ],
-
     "West Bengal": [
         "Kolkata", "Howrah",
         "Siliguri", "Durgapur"
     ],
 
-    # UNION TERRITORIES
-
     "Delhi": [
         "New Delhi", "Dwarka",
-        "Rohini", "Karol Bagh"
-    ],
-
-    "Jammu & Kashmir": [
-        "Srinagar", "Jammu"
-    ],
-
-    "Ladakh": [
-        "Leh", "Kargil"
-    ],
-
-    "Puducherry": [
-        "Puducherry", "Karaikal"
-    ],
-
-    "Chandigarh": [
-        "Chandigarh"
+        "Rohini"
     ]
 }
+
+# ============================================================
+# DATA
+# ============================================================
+
+fake = Faker()
+
+regions = ["North", "South", "East", "West", "Central"]
 
 categories = [
     "Electronics",
@@ -363,42 +208,50 @@ categories = [
 ]
 
 sub_categories = {
-    "Electronics": ["Laptops", "Mobiles", "Televisions", "Accessories"],
+    "Electronics": ["Laptops", "Mobiles", "TV", "Accessories"],
     "Furniture": ["Chairs", "Tables", "Beds", "Sofas"],
-    "Clothing": ["Men Wear", "Women Wear", "Kids Wear", "Footwear"],
-    "Home & Kitchen": ["Cookware", "Decor", "Storage", "Appliances"],
-    "Office Supplies": ["Printers", "Paper", "Labels", "Binders"]
+    "Clothing": ["Men Wear", "Women Wear", "Footwear"],
+    "Home & Kitchen": ["Cookware", "Storage", "Decor"],
+    "Office Supplies": ["Printers", "Paper", "Binders"]
 }
 
-segments = ["Consumer", "Corporate", "Government", "Small Business"]
+segments = [
+    "Consumer",
+    "Corporate",
+    "Government",
+    "Small Business"
+]
 
 ship_modes = [
-    "Express Delivery",
-    "Economy",
+    "Express",
     "Standard",
+    "Economy",
     "Same Day"
 ]
 
 # ============================================================
-# GENERATE LIVE DATA
+# LIVE DATA GENERATOR
 # ============================================================
 
-@st.cache_data(ttl=10)
-def generate_live_data(rows=5000):
+@st.cache_data(ttl=5)
+def generate_live_data(rows=1500):
 
     data = []
 
     for _ in range(rows):
 
+        state = random.choice(list(india_locations.keys()))
+        city = random.choice(india_locations[state])
+
         category = random.choice(categories)
 
-        revenue = random.randint(2000, 150000)
+        revenue = random.randint(5000, 200000)
 
-        discount = random.choice([0, 5, 10, 15, 20, 30, 40])
+        discount = random.choice([0, 5, 10, 15, 20, 25, 30])
 
         profit = revenue * random.uniform(0.05, 0.35)
 
-        quantity = random.randint(1, 10)
+        quantity = random.randint(1, 15)
 
         order_date = datetime.now() - timedelta(
             days=random.randint(0, 365)
@@ -408,13 +261,15 @@ def generate_live_data(rows=5000):
 
             "Region": random.choice(regions),
 
-            "State": random.choice(states),
+            "State": state,
 
-            "City": random.choice(cities),
+            "City": city,
 
             "Category": category,
 
-            "Sub_Category": random.choice(sub_categories[category]),
+            "Sub_Category": random.choice(
+                sub_categories[category]
+            ),
 
             "Segment": random.choice(segments),
 
@@ -437,33 +292,31 @@ def generate_live_data(rows=5000):
 df = generate_live_data()
 
 # ============================================================
-# SIDEBAR FILTERS
+# SIDEBAR
 # ============================================================
 
 st.sidebar.title("📊 Dashboard Filters")
 
-selected_region = st.sidebar.multiselect(
-    "Region",
-    options=df["Region"].unique(),
-    default=df["Region"].unique()
+selected_states = st.sidebar.multiselect(
+    "Select States",
+    df["State"].unique(),
+    default=df["State"].unique()
 )
 
 selected_category = st.sidebar.multiselect(
-    "Category",
-    options=df["Category"].unique(),
+    "Select Category",
+    df["Category"].unique(),
     default=df["Category"].unique()
 )
 
 selected_segment = st.sidebar.multiselect(
-    "Segment",
-    options=df["Segment"].unique(),
+    "Select Segment",
+    df["Segment"].unique(),
     default=df["Segment"].unique()
 )
 
-# FILTER DATA
-
 filtered_df = df[
-    (df["Region"].isin(selected_region)) &
+    (df["State"].isin(selected_states)) &
     (df["Category"].isin(selected_category)) &
     (df["Segment"].isin(selected_segment))
 ]
@@ -472,50 +325,52 @@ filtered_df = df[
 # HEADER
 # ============================================================
 
+st.title("🇮🇳 India Live Retail Analytics Dashboard")
+
 st.markdown("""
-# 🇮🇳 India Live Retail Analytics Dashboard
-### Real-Time Business Intelligence • Live Market Scenario • AI Business View
+Professional Real-Time Business Intelligence Dashboard  
+Live Operational Analytics • Enterprise Insights • Market Scenario
 """)
 
 st.markdown("---")
 
 # ============================================================
-# KPI SECTION
+# KPI CARDS
 # ============================================================
 
 total_revenue = filtered_df["Revenue"].sum()
 total_profit = filtered_df["Profit"].sum()
-units_sold = filtered_df["Quantity"].sum()
+total_orders = len(filtered_df)
 avg_order = filtered_df["Revenue"].mean()
 
-col1, col2, col3, col4 = st.columns(4)
+c1, c2, c3, c4 = st.columns(4)
 
-with col1:
+with c1:
     st.metric(
         "💰 Total Revenue",
         f"₹ {total_revenue:,.0f}",
         "+12%"
     )
 
-with col2:
+with c2:
     st.metric(
         "📈 Net Profit",
         f"₹ {total_profit:,.0f}",
         "+8%"
     )
 
-with col3:
+with c3:
     st.metric(
-        "📦 Units Sold",
-        f"{units_sold:,}",
+        "📦 Total Orders",
+        f"{total_orders:,}",
         "+15%"
     )
 
-with col4:
+with c4:
     st.metric(
         "🛒 Avg Order Value",
         f"₹ {avg_order:,.0f}",
-        "+5%"
+        "+6%"
     )
 
 st.markdown("---")
@@ -524,11 +379,13 @@ st.markdown("---")
 # MONTHLY TREND
 # ============================================================
 
-trend = filtered_df.copy()
+trend_df = filtered_df.copy()
 
-trend["Month"] = trend["Order_Date"].dt.strftime("%b")
+trend_df["Month"] = trend_df["Order_Date"].dt.strftime("%b")
 
-monthly = trend.groupby("Month")[["Revenue", "Profit"]].sum().reset_index()
+monthly = trend_df.groupby("Month")[[
+    "Revenue", "Profit"
+]].sum().reset_index()
 
 fig = go.Figure()
 
@@ -547,7 +404,7 @@ fig.add_trace(go.Scatter(
 ))
 
 fig.update_layout(
-    template="plotly_dark",
+    template="plotly_white",
     title="Monthly Revenue & Profit Trend",
     height=450
 )
@@ -560,7 +417,9 @@ st.plotly_chart(fig, use_container_width=True)
 
 col1, col2 = st.columns(2)
 
-category_sales = filtered_df.groupby("Category")["Revenue"].sum().reset_index()
+category_sales = filtered_df.groupby(
+    "Category"
+)["Revenue"].sum().reset_index()
 
 with col1:
 
@@ -569,13 +428,15 @@ with col1:
         x="Category",
         y="Revenue",
         color="Category",
-        title="Revenue by Category",
-        template="plotly_dark"
+        template="plotly_white",
+        title="Revenue by Category"
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
-category_profit = filtered_df.groupby("Category")["Profit"].sum().reset_index()
+category_profit = filtered_df.groupby(
+    "Category"
+)["Profit"].sum().reset_index()
 
 with col2:
 
@@ -584,25 +445,23 @@ with col2:
         names="Category",
         values="Profit",
         hole=0.5,
-        title="Profit Share by Category",
-        template="plotly_dark"
+        template="plotly_white",
+        title="Profit Share by Category"
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# TOP STATES
+# STATE ANALYSIS
 # ============================================================
 
-st.markdown("## 🏆 Top Performing States")
+st.subheader("🏆 Top States Performance")
 
-top_states = (
-    filtered_df.groupby("State")["Revenue"]
-    .sum()
-    .sort_values(ascending=False)
-    .head(10)
-    .reset_index()
-)
+top_states = filtered_df.groupby("State")[
+    "Revenue"
+].sum().sort_values(
+    ascending=False
+).head(10).reset_index()
 
 fig = px.bar(
     top_states,
@@ -610,8 +469,30 @@ fig = px.bar(
     y="State",
     orientation="h",
     color="Revenue",
-    template="plotly_dark",
-    title="Top States by Revenue"
+    template="plotly_white"
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+# ============================================================
+# CITY ANALYSIS
+# ============================================================
+
+st.subheader("🌆 Top Cities")
+
+top_cities = filtered_df.groupby("City")[
+    "Revenue"
+].sum().sort_values(
+    ascending=False
+).head(15).reset_index()
+
+fig = px.bar(
+    top_cities,
+    x="Revenue",
+    y="City",
+    orientation="h",
+    color="Revenue",
+    template="plotly_white"
 )
 
 st.plotly_chart(fig, use_container_width=True)
@@ -620,7 +501,7 @@ st.plotly_chart(fig, use_container_width=True)
 # HEATMAP
 # ============================================================
 
-st.markdown("## 🔥 Cross-Dimensional Analysis")
+st.subheader("🔥 Revenue Heatmap")
 
 heatmap_df = filtered_df.pivot_table(
     index="Category",
@@ -633,8 +514,7 @@ fig = px.imshow(
     heatmap_df,
     text_auto=True,
     aspect="auto",
-    template="plotly_dark",
-    title="Revenue Heatmap: Category vs Region"
+    template="plotly_white"
 )
 
 st.plotly_chart(fig, use_container_width=True)
@@ -643,7 +523,7 @@ st.plotly_chart(fig, use_container_width=True)
 # DISCOUNT VS PROFIT
 # ============================================================
 
-st.markdown("## 📉 Discount vs Profit Impact")
+st.subheader("📉 Discount vs Profit")
 
 fig = px.scatter(
     filtered_df,
@@ -651,19 +531,19 @@ fig = px.scatter(
     y="Profit",
     size="Revenue",
     color="Category",
-    hover_data=["Sub_Category"],
-    template="plotly_dark"
+    hover_data=["State", "City"],
+    template="plotly_white"
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# LIVE TRANSACTIONS TABLE
+# LIVE TRANSACTION TABLE
 # ============================================================
 
-st.markdown("## ⚡ Live Transactions Feed")
+st.subheader("⚡ Live Transactions")
 
-live_table = filtered_df[[
+table_df = filtered_df[[
     "State",
     "City",
     "Category",
@@ -674,7 +554,7 @@ live_table = filtered_df[[
 ]].tail(20)
 
 st.dataframe(
-    live_table,
+    table_df,
     use_container_width=True,
     height=400
 )
@@ -683,16 +563,12 @@ st.dataframe(
 # AUTO REFRESH
 # ============================================================
 
-st.markdown("---")
-
 st.success(
-    f"✅ Live Dashboard Running • Last Updated: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
+    f"✅ Dashboard Live • Last Updated: "
+    f"{datetime.now().strftime('%d-%m-%Y %H:%M:%S')}"
 )
 
-time.sleep(2)
-
-st.rerun()
-
-# ============================================================
-# END
-# ============================================================
+st_autorefresh(
+    interval=5000,
+    key="live_dashboard_refresh"
+)
