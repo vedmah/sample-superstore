@@ -1,1 +1,7 @@
 streamlit
+ 
+pandas 
+numpy 
+plotly 
+faker 
+python-dateutil 
