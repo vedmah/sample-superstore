@@ -1,6 +1,6 @@
-streamlit==1.39.0
-pandas==2.2.2
-numpy==1.26.4
-plotly==5.24.1
-faker==30.8.1
-python-dateutil==2.9.0.post0
+streamlit
+pandas
+numpy
+plotly
+faker
+python-dateutil
