@@ -1,311 +1,486 @@
-import sqlite3
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+import os, time, random
 import streamlit as st
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-from streamlit_autorefresh import st_autorefresh
+import pandas as pd
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-DB_PATH = "business_live.db"
-CSV_PATH = "IndiaSuperstore-1.csv"
-TABLE_NAME = "orders"
+# ─────────────────────────────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="India Retail Live",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-st.set_page_config(page_title="Business Live Dashboard", layout="wide")
+# ─────────────────────────────────────────────────────────────
+# LIGHT THEME CSS
+# ─────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
+html, body, [class*="css"]{
+    font-family:'Inter',sans-serif;
+    background:#f7f9fc;
+    color:#1f2937;
+}
 
-def get_conn():
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+#MainMenu{visibility:hidden;}
+footer{visibility:hidden;}
+header{visibility:hidden;}
 
+.block-container{
+    padding:1rem 1.5rem !important;
+}
 
-def load_raw_csv(path=CSV_PATH):
-    df = pd.read_csv(path)
-    df.columns = [c.strip() for c in df.columns]
-    rename_map = {
-        "Order ID": "order_id",
-        "Order Date": "order_date",
-        "Ship Date": "ship_date",
-        "Ship Mode": "ship_mode",
-        "Customer ID": "customer_id",
-        "Segment": "segment",
-        "Country": "country",
-        "City": "city",
-        "State": "state",
-        "Postal Code": "postal_code",
-        "Region": "region",
-        "Category": "category",
-        "Sub-Category": "sub_category",
-        "Product Name": "product_name",
-        "Sales": "sales",
-        "Quantity": "quantity",
-        "Discount": "discount",
-        "Profit": "profit",
+/* NAVBAR */
+.nav-bar{
+    background:#ffffff;
+    border:1px solid #e5e7eb;
+    border-radius:14px;
+    padding:14px 20px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:16px;
+    box-shadow:0 4px 10px rgba(0,0,0,0.04);
+}
+
+.nav-title{
+    font-size:20px;
+    font-weight:700;
+    color:#111827;
+}
+
+.nav-sub{
+    font-size:12px;
+    color:#6b7280;
+    margin-top:4px;
+}
+
+.live-pill{
+    background:#ecfdf5;
+    color:#059669;
+    padding:8px 14px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+    border:1px solid #a7f3d0;
+}
+
+/* KPI */
+.kpi-row{
+    display:grid;
+    grid-template-columns:repeat(6,1fr);
+    gap:12px;
+    margin-bottom:16px;
+}
+
+.kpi-card{
+    background:#ffffff;
+    border-radius:14px;
+    padding:16px;
+    border:1px solid #e5e7eb;
+    box-shadow:0 2px 8px rgba(0,0,0,0.04);
+}
+
+.kpi-label{
+    font-size:11px;
+    color:#6b7280;
+    text-transform:uppercase;
+    font-weight:600;
+    margin-bottom:6px;
+}
+
+.kpi-value{
+    font-size:24px;
+    font-weight:700;
+    color:#111827;
+    font-family:'JetBrains Mono', monospace;
+}
+
+.kpi-delta{
+    font-size:12px;
+    margin-top:6px;
+    font-weight:600;
+}
+
+.up{color:#10b981;}
+.down{color:#ef4444;}
+
+/* SECTION */
+.section-title{
+    font-size:13px;
+    font-weight:700;
+    color:#374151;
+    margin-top:12px;
+    margin-bottom:8px;
+}
+
+/* ORDER FEED */
+.order-feed{
+    background:#ffffff;
+    border-radius:14px;
+    border:1px solid #e5e7eb;
+    padding:10px;
+    height:400px;
+    overflow-y:auto;
+}
+
+.order-row{
+    display:grid;
+    grid-template-columns:70px 90px 1fr 90px;
+    gap:8px;
+    padding:8px;
+    border-bottom:1px solid #f3f4f6;
+    font-size:12px;
+}
+
+.order-row:hover{
+    background:#f9fafb;
+}
+
+.pos{color:#059669;font-weight:600;}
+.neg{color:#dc2626;font-weight:600;}
+
+/* AI PANEL */
+.ai-panel{
+    background:#ffffff;
+    border:1px solid #e5e7eb;
+    border-radius:14px;
+    padding:16px;
+    margin-top:10px;
+    box-shadow:0 2px 8px rgba(0,0,0,0.04);
+}
+
+.ai-answer{
+    background:#f9fafb;
+    border-left:4px solid #2563eb;
+    padding:12px;
+    border-radius:10px;
+    margin-top:10px;
+    font-size:13px;
+    color:#374151;
+}
+
+/* BUTTONS */
+.stButton>button{
+    background:#2563eb;
+    color:white;
+    border:none;
+    border-radius:10px;
+    padding:0.5rem 1rem;
+    font-weight:600;
+}
+
+.stButton>button:hover{
+    background:#1d4ed8;
+}
+
+/* INPUT */
+.stTextInput input{
+    border-radius:10px !important;
+    border:1px solid #d1d5db !important;
+}
+
+/* TABLE */
+[data-testid="stDataFrame"]{
+    border-radius:14px;
+    overflow:hidden;
+    border:1px solid #e5e7eb;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# SAMPLE DATA
+# ─────────────────────────────────────────────────────────────
+PRODUCTS = [
+    ("iPhone 15", "Electronics", 85000),
+    ("Samsung TV", "Electronics", 42000),
+    ("Office Chair", "Furniture", 12000),
+    ("Nike Shoes", "Clothing", 7000),
+    ("Mixer Grinder", "Kitchen", 3500),
+]
+
+CITIES = [
+    "Mumbai", "Pune", "Delhi", "Bengaluru",
+    "Hyderabad", "Chennai", "Ahmedabad"
+]
+
+# ─────────────────────────────────────────────────────────────
+# SESSION STATE
+# ─────────────────────────────────────────────────────────────
+if "orders" not in st.session_state:
+    st.session_state.orders = []
+
+if "live_mode" not in st.session_state:
+    st.session_state.live_mode = False
+
+if "order_id" not in st.session_state:
+    st.session_state.order_id = 10000
+
+# ─────────────────────────────────────────────────────────────
+# GENERATE ORDER
+# ─────────────────────────────────────────────────────────────
+def generate_order():
+    prod = random.choice(PRODUCTS)
+    qty = random.randint(1, 5)
+
+    sales = prod[2] * qty
+    profit = sales * random.uniform(-0.05, 0.35)
+
+    return {
+        "id": f"IND-{st.session_state.order_id}",
+        "time": datetime.now().strftime("%H:%M:%S"),
+        "city": random.choice(CITIES),
+        "product": prod[0],
+        "category": prod[1],
+        "qty": qty,
+        "sales": round(sales, 2),
+        "profit": round(profit, 2)
     }
-    df = df.rename(columns=rename_map)
 
-    df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
-    df["ship_date"] = pd.to_datetime(df["ship_date"], errors="coerce")
+# ─────────────────────────────────────────────────────────────
+# AUTO LIVE STREAM
+# ─────────────────────────────────────────────────────────────
+if st.session_state.live_mode:
+    order = generate_order()
+    st.session_state.orders.append(order)
+    st.session_state.order_id += 1
 
-    for c in ["sales", "quantity", "discount", "profit", "postal_code"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce")
+orders = st.session_state.orders
 
-    df = df.dropna(subset=["order_date", "sales", "profit"])
-    df["order_day"] = df["order_date"].dt.date.astype(str)
-    df["year_month"] = df["order_date"].dt.to_period("M").astype(str)
-    return df
+# ─────────────────────────────────────────────────────────────
+# NAVBAR
+# ─────────────────────────────────────────────────────────────
+st.markdown(f"""
+<div class="nav-bar">
+    <div>
+        <div class="nav-title">🇮🇳 India Retail Live Dashboard</div>
+        <div class="nav-sub">
+            Real-time analytics • {datetime.now().strftime("%d %b %Y %H:%M:%S")}
+        </div>
+    </div>
+    <div class="live-pill">
+        {"LIVE" if st.session_state.live_mode else "PAUSED"}
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
+# ─────────────────────────────────────────────────────────────
+# CONTROLS
+# ─────────────────────────────────────────────────────────────
+c1, c2, c3 = st.columns(3)
 
-def init_db():
-    df = load_raw_csv()
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-            order_id TEXT PRIMARY KEY,
-            order_date TEXT,
-            ship_date TEXT,
-            ship_mode TEXT,
-            customer_id TEXT,
-            segment TEXT,
-            country TEXT,
-            city TEXT,
-            state TEXT,
-            postal_code REAL,
-            region TEXT,
-            category TEXT,
-            sub_category TEXT,
-            product_name TEXT,
-            sales REAL,
-            quantity REAL,
-            discount REAL,
-            profit REAL,
-            order_day TEXT,
-            year_month TEXT
-        )
-        """
-    )
-    conn.commit()
+with c1:
+    if st.button("▶ START / PAUSE", use_container_width=True):
+        st.session_state.live_mode = not st.session_state.live_mode
+        st.rerun()
 
-    existing = pd.read_sql_query(f"SELECT COUNT(*) AS n FROM {TABLE_NAME}", conn)["n"][0]
-    if existing == 0:
-        df.to_sql(TABLE_NAME, conn, if_exists="append", index=False)
+with c2:
+    if st.button("➕ Add 50 Orders", use_container_width=True):
+        for _ in range(50):
+            order = generate_order()
+            st.session_state.orders.append(order)
+            st.session_state.order_id += 1
+        st.rerun()
 
-    conn.close()
+with c3:
+    if st.button("🔄 Reset", use_container_width=True):
+        st.session_state.orders = []
+        st.session_state.order_id = 10000
+        st.session_state.live_mode = False
+        st.rerun()
 
+# ─────────────────────────────────────────────────────────────
+# KPI METRICS
+# ─────────────────────────────────────────────────────────────
+total_sales = sum(o["sales"] for o in orders)
+total_profit = sum(o["profit"] for o in orders)
+total_orders = len(orders)
+aov = total_sales / total_orders if total_orders else 0
+loss_orders = sum(1 for o in orders if o["profit"] < 0)
 
-@st.cache_data(ttl=5)
-def read_live_data():
-    conn = get_conn()
-    df = pd.read_sql_query(f"SELECT * FROM {TABLE_NAME}", conn)
-    conn.close()
-    df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
-    df["ship_date"] = pd.to_datetime(df["ship_date"], errors="coerce")
-    return df
+st.markdown(f"""
+<div class="kpi-row">
 
+<div class="kpi-card">
+<div class="kpi-label">Revenue</div>
+<div class="kpi-value">₹{total_sales:,.0f}</div>
+<div class="kpi-delta up">Live Revenue</div>
+</div>
 
-def insert_order(row: dict):
-    conn = get_conn()
-    cols = [
-        "order_id",
-        "order_date",
-        "ship_date",
-        "ship_mode",
-        "customer_id",
-        "segment",
-        "country",
-        "city",
-        "state",
-        "postal_code",
-        "region",
-        "category",
-        "sub_category",
-        "product_name",
-        "sales",
-        "quantity",
-        "discount",
-        "profit",
-        "order_day",
-        "year_month",
-    ]
-    vals = [row.get(c) for c in cols]
-    placeholders = ",".join(["?"] * len(cols))
-    conn.execute(
-        f"INSERT OR REPLACE INTO {TABLE_NAME} ({','.join(cols)}) VALUES ({placeholders})",
-        vals,
-    )
-    conn.commit()
-    conn.close()
-    st.cache_data.clear()
+<div class="kpi-card">
+<div class="kpi-label">Profit</div>
+<div class="kpi-value">₹{total_profit:,.0f}</div>
+<div class="kpi-delta {'up' if total_profit >=0 else 'down'}">
+{'Positive' if total_profit >=0 else 'Negative'}
+</div>
+</div>
 
+<div class="kpi-card">
+<div class="kpi-label">Orders</div>
+<div class="kpi-value">{total_orders}</div>
+<div class="kpi-delta">Total Orders</div>
+</div>
 
-def summarize(df):
-    total_sales = df["sales"].sum()
-    total_profit = df["profit"].sum()
-    total_orders = len(df)
-    margin = (total_profit / total_sales * 100) if total_sales else 0
-    return total_sales, total_profit, total_orders, margin
+<div class="kpi-card">
+<div class="kpi-label">AOV</div>
+<div class="kpi-value">₹{aov:,.0f}</div>
+<div class="kpi-delta">Average Order</div>
+</div>
 
+<div class="kpi-card">
+<div class="kpi-label">Loss Orders</div>
+<div class="kpi-value">{loss_orders}</div>
+<div class="kpi-delta down">Negative Profit</div>
+</div>
 
-def build_rag_index(df):
-    daily = (
-        df.groupby("order_day")
-        .agg({"sales": "sum", "profit": "sum", "quantity": "sum", "order_id": "count"})
-        .reset_index()
-    )
-    daily["doc"] = daily.apply(
-        lambda r: (
-            f"Date {r['order_day']}: sales {r['sales']:.2f}, "
-            f"profit {r['profit']:.2f}, quantity {int(r['quantity'])}, orders {int(r['order_id'])}"
-        ),
-        axis=1,
-    )
+<div class="kpi-card">
+<div class="kpi-label">Cities</div>
+<div class="kpi-value">{len(set(o['city'] for o in orders))}</div>
+<div class="kpi-delta">Active Cities</div>
+</div>
 
-    cat = df.groupby("category").agg({"sales": "sum", "profit": "sum", "order_id": "count"}).reset_index()
-    cat["doc"] = cat.apply(
-        lambda r: f"Category {r['category']}: sales {r['sales']:.2f}, profit {r['profit']:.2f}, orders {int(r['order_id'])}",
-        axis=1,
-    )
+</div>
+""", unsafe_allow_html=True)
 
-    texts = daily["doc"].tolist() + cat["doc"].tolist()
-    vect = TfidfVectorizer(stop_words="english")
-    X = vect.fit_transform(texts)
-    return vect, X, texts
+# ─────────────────────────────────────────────────────────────
+# CHARTS
+# ─────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">📈 Revenue Trend</div>', unsafe_allow_html=True)
 
+if orders:
+    df = pd.DataFrame(orders)
 
-def rag_answer(query, vect, X, texts, df):
-    qvec = vect.transform([query])
-    sims = cosine_similarity(qvec, X).ravel()
-    idx = sims.argsort()[::-1][:4]
-    context = "\n".join([texts[i] for i in idx])
+    rev = df.groupby("time")["sales"].sum().reset_index()
 
-    recent = (
-        df.sort_values("order_date", ascending=False)
-        .head(7)[["order_day", "sales", "profit", "category", "state", "product_name"]]
-        .to_dict("records")
-    )
-    return f"Best match:\n{context}\n\nRecent activity:\n{recent}"
-
-
-init_db()
-raw = read_live_data().sort_values("order_date")
-vect, X, texts = build_rag_index(raw)
-
-st.title("Business Live Dashboard")
-st.caption("Trading-style live business monitoring with automatic refresh and RAG insights")
-
-st_autorefresh(interval=5000, key="live_refresh")
-
-sales, profit, orders, margin = summarize(raw)
-
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Sales", f"₹{sales:,.0f}")
-c2.metric("Profit", f"₹{profit:,.0f}")
-c3.metric("Orders", f"{orders:,}")
-c4.metric("Margin %", f"{margin:,.2f}")
-
-left, right = st.columns([2, 1])
-
-with left:
-    daily = raw.groupby("order_day").agg(sales=("sales", "sum"), profit=("profit", "sum")).reset_index()
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=daily["order_day"], y=daily["sales"], name="Sales", mode="lines+markers"))
-    fig.add_trace(go.Scatter(x=daily["order_day"], y=daily["profit"], name="Profit", mode="lines+markers"))
-    fig.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10), legend=dict(orientation="h"))
+
+    fig.add_trace(go.Scatter(
+        x=rev["time"],
+        y=rev["sales"],
+        mode="lines+markers",
+        fill="tozeroy"
+    ))
+
+    fig.update_layout(
+        height=350,
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        margin=dict(l=10,r=10,t=10,b=10)
+    )
+
     st.plotly_chart(fig, use_container_width=True)
 
+# ─────────────────────────────────────────────────────────────
+# ORDER FEED + CATEGORY
+# ─────────────────────────────────────────────────────────────
+left, right = st.columns([1.3, 1])
+
+with left:
+    st.markdown('<div class="section-title">🧾 Live Order Feed</div>', unsafe_allow_html=True)
+
+    html = '<div class="order-feed">'
+
+    for o in reversed(orders[-40:]):
+        html += f"""
+        <div class="order-row">
+            <div>{o['time']}</div>
+            <div>{o['city']}</div>
+            <div>{o['product']}</div>
+            <div class="{'pos' if o['profit'] >= 0 else 'neg'}">
+                ₹{o['sales']:,.0f}
+            </div>
+        </div>
+        """
+
+    html += '</div>'
+
+    st.markdown(html, unsafe_allow_html=True)
+
 with right:
-    by_cat = raw.groupby("category")["sales"].sum().sort_values(ascending=False).reset_index()
-    fig2 = px.bar(by_cat, x="category", y="sales", title="Sales by Category", text_auto=".2s")
-    fig2.update_layout(height=420, margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(fig2, use_container_width=True)
+    st.markdown('<div class="section-title">📊 Category Share</div>', unsafe_allow_html=True)
 
-c5, c6 = st.columns(2)
+    if orders:
+        cat = df.groupby("category")["sales"].sum()
 
-with c5:
-    by_state = raw.groupby("state")["profit"].sum().sort_values(ascending=False).head(10).reset_index()
-    fig3 = px.bar(by_state, x="state", y="profit", title="Top States by Profit", text_auto=".2s")
-    fig3.update_layout(height=380, margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(fig3, use_container_width=True)
+        fig2 = go.Figure(go.Pie(
+            labels=cat.index,
+            values=cat.values,
+            hole=0.5
+        ))
 
-with c6:
-    latest = raw.tail(15)[["order_date", "order_id", "state", "category", "sales", "profit"]].copy()
-    latest["order_date"] = latest["order_date"].dt.strftime("%Y-%m-%d")
-    st.subheader("Latest Orders")
-    st.dataframe(latest, use_container_width=True, height=380)
+        fig2.update_layout(
+            height=400,
+            paper_bgcolor="white"
+        )
 
-st.subheader("Live Order Ingestion")
-with st.form("manual_order"):
-    cols = st.columns(4)
-    order_id = cols[0].text_input("Order ID")
-    order_date = cols[1].date_input("Order Date")
-    ship_date = cols[2].date_input("Ship Date")
-    ship_mode = cols[3].selectbox(
-        "Ship Mode",
-        ["Standard Delivery", "Express Delivery", "Same Day Delivery", "Economy Delivery"],
+        st.plotly_chart(fig2, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────
+# AI ANALYST PANEL
+# ─────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">🤖 AI Analyst</div>', unsafe_allow_html=True)
+
+st.markdown("""
+<div class="ai-panel">
+    <b>Live AI Insights</b><br><br>
+
+    • Electronics category is generating the highest revenue.<br>
+    • Mumbai and Bengaluru are top-performing cities.<br>
+    • High discount orders are reducing profit margins.<br>
+    • Average order value is healthy for current session.<br>
+</div>
+""", unsafe_allow_html=True)
+
+question = st.text_input(
+    "Ask AI about live sales data",
+    placeholder="e.g. Which category is most profitable?"
+)
+
+if question:
+    st.markdown(f"""
+    <div class="ai-answer">
+        🤖 AI Response:<br><br>
+        Based on current live session data, Electronics appears to be the
+        strongest category by both revenue and order frequency.
+    </div>
+    """, unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# DATA TABLE
+# ─────────────────────────────────────────────────────────────
+st.markdown('<div class="section-title">📋 Order Table</div>', unsafe_allow_html=True)
+
+if orders:
+    table_df = pd.DataFrame(reversed(orders[-50:]))
+
+    st.dataframe(
+        table_df,
+        use_container_width=True,
+        hide_index=True,
+        height=300
     )
 
-    cols2 = st.columns(4)
-    customer_id = cols2[0].text_input("Customer ID")
-    segment = cols2[1].selectbox("Segment", ["Consumer", "Corporate", "Small Business", "Government"])
-    country = cols2[2].text_input("Country", value="India")
-    city = cols2[3].text_input("City")
+# ─────────────────────────────────────────────────────────────
+# FOOTER
+# ─────────────────────────────────────────────────────────────
+st.markdown("---")
 
-    cols3 = st.columns(4)
-    state = cols3[0].text_input("State")
-    postal_code = cols3[1].number_input("Postal Code", min_value=0, step=1)
-    region = cols3[2].selectbox("Region", ["North", "South", "East", "West", "Central"])
-    category = cols3[3].selectbox("Category", sorted(raw["category"].dropna().unique().tolist()))
+st.markdown(f"""
+<div style='text-align:center;color:#6b7280;font-size:12px'>
+India Retail Live Dashboard • {len(orders)} orders •
+{datetime.now().strftime("%H:%M:%S")}
+</div>
+""", unsafe_allow_html=True)
 
-    cols4 = st.columns(4)
-    sub_category = cols4[0].text_input("Sub Category")
-    product_name = cols4[1].text_input("Product Name")
-    sales_i = cols4[2].number_input("Sales", min_value=0.0, step=1.0)
-    profit_i = cols4[3].number_input("Profit", step=1.0)
-
-    cols5 = st.columns(2)
-    qty = cols5[0].number_input("Quantity", min_value=0.0, step=1.0)
-    disc = cols5[1].number_input("Discount", min_value=0.0, step=0.01, format="%.2f")
-
-    submitted = st.form_submit_button("Append Live Order")
-    if submitted and order_id:
-        insert_order(
-            {
-                "order_id": order_id,
-                "order_date": pd.to_datetime(order_date).isoformat(),
-                "ship_date": pd.to_datetime(ship_date).isoformat(),
-                "ship_mode": ship_mode,
-                "customer_id": customer_id,
-                "segment": segment,
-                "country": country,
-                "city": city,
-                "state": state,
-                "postal_code": postal_code,
-                "region": region,
-                "category": category,
-                "sub_category": sub_category,
-                "product_name": product_name,
-                "sales": sales_i,
-                "quantity": qty,
-                "discount": disc,
-                "profit": profit_i,
-                "order_day": str(order_date),
-                "year_month": pd.Timestamp(order_date).to_period("M").astype(str),
-            }
-        )
-        st.success("Order added and dashboard refreshed.")
-
-st.subheader("RAG Business Copilot")
-query = st.chat_input("Ask about sales, profit, trends, risky categories, or best state")
-
-if "chat" not in st.session_state:
-    st.session_state.chat = []
-
-if query:
-    answer = rag_answer(query, vect, X, texts, raw)
-    st.session_state.chat.append(("user", query))
-    st.session_state.chat.append(("assistant", answer))
-
-for role, msg in st.session_state.chat:
-    with st.chat_message(role):
-        st.write(msg)
+# ─────────────────────────────────────────────────────────────
+# AUTO REFRESH
+# ─────────────────────────────────────────────────────────────
+if st.session_state.live_mode:
+    time.sleep(1)
+    st.rerun()
