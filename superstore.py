@@ -1,17 +1,4 @@
-# ============================================================
-# 🇮🇳 INDIA LIVE BUSINESS ANALYTICS DASHBOARD
-# Real-Time Professional Business Dashboard
-# Streamlit + Plotly + Faker
-# ============================================================
-
-# RUN:
-# streamlit run app.py
-
-# INSTALL:
-# pip install streamlit pandas numpy plotly faker
-
-# ============================================================
-
+ 
 import streamlit as st
 import pandas as pd
 import numpy as np
