@@ -325,7 +325,7 @@ filtered_df = df[
 # HEADER
 # ============================================================
 
-st.title("🇮🇳 India Live Retail Analytics Dashboard")
+st.title(" India Live Retail Analytics Dashboard")
 
 st.markdown("""
 Professional Real-Time Business Intelligence Dashboard  
