@@ -1,6 +1,6 @@
-streamlit
+streamlit 
 pandas
 numpy
 plotly
-scikit-learn
-streamlit-autorefresh
+yfinance
+ 
