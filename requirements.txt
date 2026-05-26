@@ -1,7 +1,5 @@
 streamlit
- 
-pandas 
-numpy 
-plotly 
-faker 
-python-dateutil 
+pandas
+numpy
+plotly
+yfinance
