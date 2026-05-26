@@ -193,16 +193,166 @@ fake = Faker()
 
 regions = ["North", "South", "East", "West", "Central"]
 
-states = [
-    "Maharashtra", "Delhi", "Karnataka", "Tamil Nadu",
-    "Gujarat", "Punjab", "Rajasthan", "Telangana",
-    "Kerala", "West Bengal"
-]
+# ============================================================
+# INDIA STATES & CITIES
+# ============================================================
 
-cities = [
-    "Mumbai", "Pune", "Delhi", "Bengaluru", "Hyderabad",
-    "Chennai", "Ahmedabad", "Kolkata", "Jaipur", "Lucknow"
-]
+india_locations = {
+
+    "Andhra Pradesh": [
+        "Visakhapatnam", "Vijayawada", "Guntur",
+        "Nellore", "Kurnool", "Tirupati"
+    ],
+
+    "Arunachal Pradesh": [
+        "Itanagar", "Tawang", "Ziro"
+    ],
+
+    "Assam": [
+        "Guwahati", "Dibrugarh", "Silchar",
+        "Jorhat", "Tezpur"
+    ],
+
+    "Bihar": [
+        "Patna", "Gaya", "Muzaffarpur",
+        "Bhagalpur", "Darbhanga"
+    ],
+
+    "Chhattisgarh": [
+        "Raipur", "Bilaspur", "Durg",
+        "Korba", "Bhilai"
+    ],
+
+    "Goa": [
+        "Panaji", "Margao", "Vasco da Gama"
+    ],
+
+    "Gujarat": [
+        "Ahmedabad", "Surat", "Vadodara",
+        "Rajkot", "Gandhinagar", "Bhavnagar"
+    ],
+
+    "Haryana": [
+        "Gurugram", "Faridabad", "Panipat",
+        "Ambala", "Karnal"
+    ],
+
+    "Himachal Pradesh": [
+        "Shimla", "Manali", "Dharamshala"
+    ],
+
+    "Jharkhand": [
+        "Ranchi", "Jamshedpur", "Dhanbad",
+        "Bokaro"
+    ],
+
+    "Karnataka": [
+        "Bengaluru", "Mysuru", "Hubli",
+        "Mangalore", "Belgaum"
+    ],
+
+    "Kerala": [
+        "Kochi", "Thiruvananthapuram",
+        "Kozhikode", "Thrissur"
+    ],
+
+    "Madhya Pradesh": [
+        "Bhopal", "Indore", "Gwalior",
+        "Jabalpur", "Ujjain"
+    ],
+
+    "Maharashtra": [
+        "Mumbai", "Pune", "Nagpur",
+        "Nashik", "Thane", "Aurangabad"
+    ],
+
+    "Manipur": [
+        "Imphal", "Thoubal"
+    ],
+
+    "Meghalaya": [
+        "Shillong", "Tura"
+    ],
+
+    "Mizoram": [
+        "Aizawl", "Lunglei"
+    ],
+
+    "Nagaland": [
+        "Kohima", "Dimapur"
+    ],
+
+    "Odisha": [
+        "Bhubaneswar", "Cuttack",
+        "Rourkela", "Puri"
+    ],
+
+    "Punjab": [
+        "Ludhiana", "Amritsar",
+        "Jalandhar", "Patiala"
+    ],
+
+    "Rajasthan": [
+        "Jaipur", "Jodhpur",
+        "Udaipur", "Kota", "Ajmer"
+    ],
+
+    "Sikkim": [
+        "Gangtok", "Namchi"
+    ],
+
+    "Tamil Nadu": [
+        "Chennai", "Coimbatore",
+        "Madurai", "Salem", "Tiruppur"
+    ],
+
+    "Telangana": [
+        "Hyderabad", "Warangal",
+        "Karimnagar", "Nizamabad"
+    ],
+
+    "Tripura": [
+        "Agartala", "Udaipur"
+    ],
+
+    "Uttar Pradesh": [
+        "Lucknow", "Kanpur",
+        "Noida", "Agra", "Varanasi"
+    ],
+
+    "Uttarakhand": [
+        "Dehradun", "Haridwar",
+        "Roorkee", "Nainital"
+    ],
+
+    "West Bengal": [
+        "Kolkata", "Howrah",
+        "Siliguri", "Durgapur"
+    ],
+
+    # UNION TERRITORIES
+
+    "Delhi": [
+        "New Delhi", "Dwarka",
+        "Rohini", "Karol Bagh"
+    ],
+
+    "Jammu & Kashmir": [
+        "Srinagar", "Jammu"
+    ],
+
+    "Ladakh": [
+        "Leh", "Kargil"
+    ],
+
+    "Puducherry": [
+        "Puducherry", "Karaikal"
+    ],
+
+    "Chandigarh": [
+        "Chandigarh"
+    ]
+}
 
 categories = [
     "Electronics",
